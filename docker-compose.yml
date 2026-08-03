@@ -1,0 +1,13 @@
+services:
+  palace-online:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      PUBLIC_APP_URL: http://localhost:3001
+      ALLOWED_ORIGINS: http://localhost:3001
+      SESSION_COOKIE_SECURE: "false"
+      RECONNECT_GRACE_MS: 120000
+    restart: unless-stopped
