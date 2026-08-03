@@ -1,0 +1,6 @@
+pnpm-lock.yaml
+dist
+coverage
+output
+playwright-report
+.playwright-cli
