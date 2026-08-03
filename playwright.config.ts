@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const remoteBaseURL = process.env.E2E_BASE_URL?.replace(/\/+$/, "");
+
 export default defineConfig({
   testDir: "tests/e2e",
   outputDir: "output/playwright/results",
@@ -8,19 +10,21 @@ export default defineConfig({
   expect: { timeout: 8_000 },
   fullyParallel: false,
   reporter: [["list"], ["html", { outputFolder: "output/playwright/report", open: "never" }]],
-  use: { baseURL: "http://127.0.0.1:4173", trace: "retain-on-failure" },
-  webServer: [
-    {
-      command: "pnpm --filter @palace/server dev:test",
-      url: "http://127.0.0.1:3001/healthz",
-      reuseExistingServer: !process.env.CI,
-    },
-    {
-      command: "pnpm --filter @palace/client dev --host 127.0.0.1 --port 4173",
-      url: "http://127.0.0.1:4173",
-      reuseExistingServer: !process.env.CI,
-    },
-  ],
+  use: { baseURL: remoteBaseURL ?? "http://127.0.0.1:4173", trace: "retain-on-failure" },
+  webServer: remoteBaseURL
+    ? undefined
+    : [
+        {
+          command: "pnpm --filter @palace/server dev:test",
+          url: "http://127.0.0.1:3001/healthz",
+          reuseExistingServer: !process.env.CI,
+        },
+        {
+          command: "pnpm --filter @palace/client dev --host 127.0.0.1 --port 4173",
+          url: "http://127.0.0.1:4173",
+          reuseExistingServer: !process.env.CI,
+        },
+      ],
   projects: [
     {
       name: "desktop-chromium",

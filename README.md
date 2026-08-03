@@ -2,7 +2,11 @@
 
 Palace Online is a polished, server-authoritative, two-player implementation of the Palace card game. Create a private six-character room, invite one rival, arrange your face-down field, and race through your hand, remembered cards, and blind cards. The interface pairs an original neon retro-casino aesthetic—chunky type, CRT texture, tactile cards, and saturated color—with mouse, keyboard, and touch layouts for desktop and iPhone-sized screens.
 
-> Screenshot placeholders: add final desktop and iPhone captures under `docs/screenshots/` after deploying to your chosen host.
+## Play online
+
+The public game is available at [palace-online-inxlinggamer.onrender.com](https://palace-online-inxlinggamer.onrender.com). The health endpoint is [`/healthz`](https://palace-online-inxlinggamer.onrender.com/healthz).
+
+This first release runs on Render's free web-service tier. After 15 minutes without traffic, the service sleeps; the first visit after that can take about a minute to wake. A Render restart or new deployment ends active games because version one intentionally stores rooms in one process.
 
 ## Technology
 
@@ -72,6 +76,16 @@ docker compose up --build
 Visit `http://localhost:3001`; the health endpoint is `GET /healthz`.
 
 For public deployment, use a persistent Node/container provider that supports long-lived WebSocket connections and sticky single-instance operation. Set the public URL and allowed origin to the HTTPS deployment URL, enable secure cookies, expose the configured `PORT`, and point the provider health check at `/healthz`. Do not deploy the multiplayer server as a short-lived serverless function.
+
+### Render deployment
+
+The root [`render.yaml`](render.yaml) is the production source of truth. It provisions one free Docker web service in Virginia, enables secure same-origin cookies, uses `/healthz` for health checks, and waits for GitHub Actions to pass before automatically deploying new `main` commits. `PUBLIC_APP_URL` and `ALLOWED_ORIGINS` follow Render's assigned HTTPS URL automatically.
+
+To run the browser suite against production without starting local servers:
+
+```bash
+E2E_BASE_URL=https://palace-online-inxlinggamer.onrender.com pnpm test:e2e
+```
 
 ## Environment variables
 

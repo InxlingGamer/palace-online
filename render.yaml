@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: palace-online-inxlinggamer
+    runtime: docker
+    repo: https://github.com/InxlingGamer/palace-online
+    branch: main
+    region: virginia
+    plan: free
+    numInstances: 1
+    autoDeployTrigger: checksPass
+    renderSubdomainPolicy: enabled
+    healthCheckPath: /healthz
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    maxShutdownDelaySeconds: 30
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: PUBLIC_APP_URL
+        fromService:
+          type: web
+          name: palace-online-inxlinggamer
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: ALLOWED_ORIGINS
+        fromService:
+          type: web
+          name: palace-online-inxlinggamer
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: SESSION_COOKIE_SECURE
+        value: "true"
+      - key: TRUST_PROXY
+        value: "true"
+      - key: RECONNECT_GRACE_MS
+        value: "120000"
+      - key: ROOM_IDLE_TTL_MS
+        value: "1800000"
+      - key: ROOM_CREATE_LIMIT
+        value: "20"
+      - key: INVALID_ACTION_LIMIT
+        value: "30"
