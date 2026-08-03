@@ -1,0 +1,38 @@
+# Palace Online rules
+
+## Goal and deck
+
+Two players use one standard 52-card deck without jokers. Empty your hand, three selected field cards, and three original hidden cards to win. Normal rank order is 3, 4, 5, 6, 7, 8, 9, 10, Jack, Queen, King, Ace. Twos are wild powers rather than ranks above Ace.
+
+## Deal and setup
+
+After both players ready, the server securely shuffles. Each player receives three original hidden cards and six visible setup cards. Each player chooses exactly three of those six. The chosen cards are placed face down, one over each hidden card in selection order; their values are no longer sent to the client until picked up. The other three cards form the starting hand.
+
+To choose the starter, each hand is filtered to remove twos and sorted from low to high. The sorted ranks are compared in order. A hand with no normal card sorts after a hand containing a normal card. A complete tie is broken with secure server randomness. Suits never break ties, and the starter may play any legal card.
+
+## Turns and drawing
+
+A move is one card or multiple cards of exactly one rank. A normal rank must equal or exceed the top rank. Power cards are always legal. An empty or reset pile accepts any rank.
+
+After a successful play, that player draws until holding five cards while the draw pile has cards. A pile pickup may leave a hand above five; excess cards are never discarded. If there is no legal hand card and the pile is nonempty, the player must take the entire pile and end their turn.
+
+## Power cards and precedence
+
+- **2 — Reset:** Always legal. It leaves the pile in place, resets the next requirement, and gives the same player another move.
+- **7 — Direction:** Always legal. If the pile does not burn, its player must choose higher or lower. The opponent's next completed play must be strictly above or below seven. A 2, 7, or 10 remains legal. Playing or picking up consumes the restriction; an extra turn then continues without the old restriction.
+- **10 — Burn:** Always legal. It burns the entire pile, including all tens in the move, and gives the same player another move.
+- **Four matching:** If the top four consecutive pile cards share a rank, the entire pile burns and the completing player moves again.
+
+Resolution order is commit cards, direct ten burn, four-matching burn, two reset, seven choice, then normal turn handoff. A burn cancels a seven prompt created by that move. A direct ten takes priority over the matching-card check.
+
+## Field and blind phases
+
+Once the draw pile is empty, players keep using their existing hands. When a player's hand reaches zero, all remaining selected field cards move into their hand. After that hand is emptied, the player selects one original hidden position without seeing its value.
+
+The selected hidden card leaves its slot permanently. A legal reveal resolves like a normal play, including powers and burns. An illegal reveal is first added to the pile, then the player takes the entire pile—including that card—into their hand and ends the turn. The player cannot select another hidden card until that hand is emptied.
+
+## Winning and rematches
+
+A player wins after a legal resolution when their hand and both field layers are empty. A final 2, 10, or matching-card burn wins immediately; the unused extra turn is ignored. A final 7 must receive its direction choice before victory. Results show turn and pickup counts. Both players must request a rematch; the server then creates a new game ID, shuffle, deal, and setup while preserving the room seats.
+
+An active player gets 120 seconds to reconnect. Expiry during play gives the connected rival a forfeit victory. Expiry before regular play marks the room expired without a winner.
