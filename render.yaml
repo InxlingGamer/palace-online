@@ -12,7 +12,6 @@ services:
     healthCheckPath: /healthz
     dockerfilePath: ./Dockerfile
     dockerContext: .
-    maxShutdownDelaySeconds: 30
     envVars:
       - key: NODE_ENV
         value: production
