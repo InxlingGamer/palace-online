@@ -12,9 +12,9 @@ player-specific snapshot ← Socket.IO room ← privacy projector
 
 ## Responsibilities and state
 
-The client owns presentation-only state: selected hand IDs, audio preference, animation, connection feedback, and the latest public snapshot. It never shuffles, draws, advances a turn, or decides the result.
+The client owns presentation-only state: selected hand IDs, audio preference, animation, connection feedback, and the latest public snapshot. It may request a draw, but it never chooses the drawn card, shuffles, advances a turn, or decides the result.
 
-The server's room record contains the complete `GameState`, opaque session mappings, action-result caches, active socket IDs, invalid-action timestamps, and reconnect timers. `packages/game-engine` owns deck creation, setup, legality, effects, phases, statistics, and projection. Engine transitions clone their input and return either a new state or a stable public error code.
+The server's room record contains the complete `GameState`, opaque session mappings, action-result caches, active socket IDs, invalid-action timestamps, reconnect timers, and an empty-room timer. `packages/game-engine` owns deck creation, setup, legality, effects, phases, statistics, and projection. Engine transitions clone their input and return either a new state or a stable public error code.
 
 Each player projection includes that player's visible hand, public pile cards, counts, field slot occupancy, connection state, and game metadata. Opponent hand values and all face-down field values are excluded structurally rather than hidden only in the interface.
 
@@ -47,7 +47,7 @@ The acknowledgement contains `actionId`, `accepted`, the authoritative revision,
 
 ## Reconnection and lifecycle
 
-The random 256-bit session token, not the room code, identifies a seat. Multiple sockets for one credential are counted so closing one tab does not falsely disconnect another. When the last socket leaves, the player's public presence changes and a 120-second timer begins. Reconnection cancels that timer and restores the same projection. A play-phase timeout becomes a forfeit; lobby/setup timeout expires the room. Idle records are cleaned periodically.
+The random 256-bit session token, not the room code, identifies a seat. Multiple sockets for one credential are counted so closing one tab does not falsely disconnect another. When one player disconnects while the opponent remains, a 120-second timer begins; a play-phase timeout becomes a forfeit and a lobby/setup timeout expires the room. When every socket has left, a room-level 120-second grace begins and the complete room record is deleted unless either player reconnects. Idle records are also cleaned periodically.
 
 ## Security boundaries
 

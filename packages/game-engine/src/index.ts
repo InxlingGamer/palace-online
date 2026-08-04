@@ -224,10 +224,20 @@ export function hasLegalMove(state: GameState, playerId: string): boolean {
   return player?.hand.some(({ rank }) => isRankLegal(state, playerId, rank)) ?? false;
 }
 
-function drawToTarget(state: GameState, player: PlayerState): void {
-  while (state.drawPile.length > 0 && player.hand.length < RULES.targetHandSize) {
+function drawToMinimum(state: GameState, player: PlayerState): void {
+  while (state.drawPile.length > 0 && player.hand.length < RULES.automaticHandMinimum) {
     player.hand.push(state.drawPile.pop()!);
   }
+}
+
+function applyDraw(state: GameState, player: PlayerState): EngineResult | null {
+  if (player.hand.length >= RULES.targetHandSize)
+    return fail("HAND_FULL", "Your hand already has five cards.");
+  const drawn = state.drawPile.pop();
+  if (!drawn) return fail("DRAW_PILE_EMPTY", "The draw pile is empty.");
+  player.hand.push(drawn);
+  state.message = `${player.name} drew a card.`;
+  return null;
 }
 
 function promoteFieldCards(state: GameState, player: PlayerState): void {
@@ -284,7 +294,7 @@ function playCommittedCards(state: GameState, player: PlayerState, cards: Card[]
     state.message = directTen ? "Ten! The pile burns." : "Four of a kind! The pile burns.";
   }
 
-  drawToTarget(state, player);
+  drawToMinimum(state, player);
   promoteFieldCards(state, player);
 
   if (!directTen && !fourBurn && playedRank === Rank.Seven) {
@@ -452,16 +462,19 @@ export function applyCommand(
   else if (command.type === "REQUEST_REMATCH") error = applyRematch(state, player, random);
   else {
     if (state.phase !== "playing") return fail("INVALID_PHASE", "The game is not accepting moves.");
-    if (state.pendingSevenChoiceFor && command.type !== "CHOOSE_SEVEN_DIRECTION")
-      return fail("SEVEN_CHOICE_REQUIRED", "Choose higher or lower before continuing.");
-    if (command.type !== "CHOOSE_SEVEN_DIRECTION" && state.currentTurnPlayerId !== playerId)
-      return fail("NOT_YOUR_TURN", "It is not your turn.");
-    if (command.type === "PLAY_CARDS") error = playFromHand(state, player, command.cardIds);
-    else if (command.type === "PICK_UP_PILE") error = applyPickup(state, player);
-    else if (command.type === "CHOOSE_SEVEN_DIRECTION")
-      error = applySevenChoice(state, player, command.direction);
-    else if (command.type === "SELECT_HIDDEN_CARD")
-      error = applyHiddenCard(state, player, command.slotId);
+    if (command.type === "DRAW_CARD") error = applyDraw(state, player);
+    else {
+      if (state.pendingSevenChoiceFor && command.type !== "CHOOSE_SEVEN_DIRECTION")
+        return fail("SEVEN_CHOICE_REQUIRED", "Choose higher or lower before continuing.");
+      if (command.type !== "CHOOSE_SEVEN_DIRECTION" && state.currentTurnPlayerId !== playerId)
+        return fail("NOT_YOUR_TURN", "It is not your turn.");
+      if (command.type === "PLAY_CARDS") error = playFromHand(state, player, command.cardIds);
+      else if (command.type === "PICK_UP_PILE") error = applyPickup(state, player);
+      else if (command.type === "CHOOSE_SEVEN_DIRECTION")
+        error = applySevenChoice(state, player, command.direction);
+      else if (command.type === "SELECT_HIDDEN_CARD")
+        error = applyHiddenCard(state, player, command.slotId);
+    }
   }
   if (error) return error;
   state.revision += 1;

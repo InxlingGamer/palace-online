@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const RULES = {
   targetHandSize: 5,
+  automaticHandMinimum: 3,
   setupHandSize: 6,
   setupSelectionSize: 3,
   hiddenFieldSize: 3,
@@ -105,6 +106,7 @@ export interface PublicGameState {
 export type GameCommand =
   | { type: "READY" }
   | { type: "SELECT_SETUP_CARDS"; cardIds: string[] }
+  | { type: "DRAW_CARD" }
   | { type: "PLAY_CARDS"; cardIds: string[] }
   | { type: "PICK_UP_PILE" }
   | { type: "CHOOSE_SEVEN_DIRECTION"; direction: SevenDirection }
@@ -130,6 +132,8 @@ export type ErrorCode =
   | "INVALID_PHASE"
   | "INVALID_CARDS"
   | "ILLEGAL_RANK"
+  | "HAND_FULL"
+  | "DRAW_PILE_EMPTY"
   | "LEGAL_MOVE_AVAILABLE"
   | "SEVEN_CHOICE_REQUIRED"
   | "RATE_LIMITED";
@@ -144,6 +148,7 @@ export interface ActionResult {
 const commandSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("READY") }),
   z.object({ type: z.literal("SELECT_SETUP_CARDS"), cardIds: z.array(z.string()).length(3) }),
+  z.object({ type: z.literal("DRAW_CARD") }),
   z.object({ type: z.literal("PLAY_CARDS"), cardIds: z.array(z.string()).min(1).max(52) }),
   z.object({ type: z.literal("PICK_UP_PILE") }),
   z.object({

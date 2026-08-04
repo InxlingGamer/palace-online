@@ -1,10 +1,11 @@
 import type { AddressInfo } from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { io as createClient, type Socket } from "socket.io-client";
 import request from "supertest";
 import type { ActionEnvelope, ActionResult, PublicGameState } from "@palace/shared";
 import { createRuntime } from "../src/app";
 import type { ServerConfig } from "../src/config";
+import { RoomStore } from "../src/room-store";
 
 const testConfig: ServerConfig = {
   NODE_ENV: "test",
@@ -25,8 +26,46 @@ const runtimes: Array<ReturnType<typeof createRuntime>> = [];
 const sockets: Socket[] = [];
 
 afterEach(async () => {
+  vi.useRealTimers();
   for (const socket of sockets.splice(0)) socket.disconnect();
   for (const runtime of runtimes.splice(0)) await runtime.close();
+});
+
+describe("empty room lifecycle", () => {
+  it("deletes a room that never establishes a player socket", async () => {
+    vi.useFakeTimers();
+    const store = new RoomStore(120_000, 600_000, 10);
+    const membership = store.create("Ada");
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(store.rooms.has(membership.roomCode)).toBe(false);
+    store.close();
+  });
+
+  it("deletes a room after every player has been disconnected for the reconnect grace", async () => {
+    vi.useFakeTimers();
+    const store = new RoomStore(120_000, 600_000, 10);
+    const membership = store.create("Ada");
+    store.connect(membership.roomCode, membership.token, "socket-a");
+    store.disconnect(membership.roomCode, membership.token, "socket-a");
+    await vi.advanceTimersByTimeAsync(119_999);
+    expect(store.rooms.has(membership.roomCode)).toBe(true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(store.rooms.has(membership.roomCode)).toBe(false);
+    store.close();
+  });
+
+  it("cancels empty-room deletion when a player reconnects", async () => {
+    vi.useFakeTimers();
+    const store = new RoomStore(120_000, 600_000, 10);
+    const membership = store.create("Ada");
+    store.connect(membership.roomCode, membership.token, "socket-a");
+    store.disconnect(membership.roomCode, membership.token, "socket-a");
+    await vi.advanceTimersByTimeAsync(60_000);
+    store.connect(membership.roomCode, membership.token, "socket-b");
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(store.rooms.has(membership.roomCode)).toBe(true);
+    store.close();
+  });
 });
 
 const cookieOf = (response: request.Response): string => {

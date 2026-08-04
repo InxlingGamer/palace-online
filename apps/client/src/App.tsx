@@ -25,6 +25,18 @@ import {
 import { useSound } from "./audio";
 
 const rankValue = new Map<Rank, number>(NORMAL_RANKS.map((rank, index) => [rank, index]));
+const handRanks = [Rank.Two, ...NORMAL_RANKS] as const;
+const handRankValue = new Map<Rank, number>(handRanks.map((rank, index) => [rank, index]));
+
+type FlightKind = "draw" | "opponent-draw" | "hidden-deal" | "hand-deal" | "setup" | "collect";
+
+interface CardFlight {
+  key: string;
+  kind: FlightKind;
+  card?: CardType;
+  index: number;
+  delay: number;
+}
 
 function roomFromPath(): string | null {
   return /^\/room\/([A-Z2-9]{6})$/i.exec(window.location.pathname)?.[1]?.toUpperCase() ?? null;
@@ -85,11 +97,18 @@ function Card({
       aria-pressed={selected}
       type="button"
       data-card-id={card.id}
+      data-card-rank={card.rank}
     >
       {content}
     </button>
   ) : (
-    <div className={className} style={style} aria-label={label} data-card-id={card.id}>
+    <div
+      className={className}
+      style={style}
+      aria-label={label}
+      data-card-id={card.id}
+      data-card-rank={card.rank}
+    >
       {content}
     </div>
   );
@@ -99,24 +118,54 @@ function CardBack({
   label = "Face-down card",
   onClick,
   dramatic = false,
+  disabled = false,
 }: {
   label?: string;
   onClick?: () => void;
   dramatic?: boolean;
+  disabled?: boolean;
 }) {
   const className = `card card--back ${dramatic ? "card--dramatic" : ""}`;
-  const mark = (
-    <span className="card__back-mark" aria-hidden="true">
-      P
-    </span>
-  );
+  const pattern = <span className="card__back-pattern" aria-hidden="true" />;
   return onClick ? (
-    <button className={className} onClick={onClick} type="button" aria-label={label}>
-      {mark}
+    <button
+      className={className}
+      onClick={onClick}
+      type="button"
+      aria-label={label}
+      disabled={disabled}
+    >
+      {pattern}
     </button>
   ) : (
     <div className={className} aria-label={label}>
-      {mark}
+      {pattern}
+    </div>
+  );
+}
+
+function FlightLayer({ flights }: { flights: CardFlight[] }) {
+  if (flights.length === 0) return null;
+  return (
+    <div className="flight-layer" aria-hidden="true">
+      {flights.map((flight) => (
+        <div
+          key={flight.key}
+          className={`card-flight card-flight--${flight.kind}`}
+          style={
+            {
+              "--flight-index": flight.index,
+              "--flight-delay": `${flight.delay}ms`,
+              "--flight-x": `${
+                (flight.index - (flight.kind === "hand-deal" ? 2.5 : 1)) *
+                (flight.kind === "hand-deal" ? 38 : 58)
+              }px`,
+            } as CSSProperties
+          }
+        >
+          {flight.card ? <Card card={flight.card} /> : <CardBack />}
+        </div>
+      ))}
     </div>
   );
 }
@@ -298,11 +347,14 @@ export function App() {
   const [loadingRoom, setLoadingRoom] = useState(Boolean(initialRoom));
   const [selected, setSelected] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
+  const [drawBusy, setDrawBusy] = useState(false);
+  const [flights, setFlights] = useState<CardFlight[]>([]);
   const [connection, setConnection] = useState<"connected" | "reconnecting" | "offline">(
     "reconnecting",
   );
   const socketRef = useRef<Socket | null>(null);
   const previousRef = useRef<PublicGameState | null>(null);
+  const flightTimerRef = useRef<number | null>(null);
   const sound = useSound();
 
   const connect = useCallback((roomCode: string) => {
@@ -335,11 +387,119 @@ export function App() {
     if (!state) return;
     const previous = previousRef.current;
     if (previous && state.revision !== previous.revision) {
+      const nextFlights: CardFlight[] = [];
+      const previousHandIds = new Set(previous.you.hand.map(({ id }) => id));
+      const addedCards = state.you.hand.filter(({ id }) => !previousHandIds.has(id));
+      const drawDelta = previous.drawCount - state.drawCount;
+      const startingDeal =
+        previous.phase === "lobby" && state.phase === "setup" && Boolean(state.gameId);
+      const collectedField =
+        previous.you.selectedFieldCount > 0 &&
+        state.you.selectedFieldCount === 0 &&
+        state.drawCount === 0 &&
+        addedCards.length > 0;
+
+      if (startingDeal && state.gameId && !sessionStorage.getItem(`palace-deal-${state.gameId}`)) {
+        sessionStorage.setItem(`palace-deal-${state.gameId}`, "true");
+        for (let index = 0; index < 3; index += 1)
+          nextFlights.push({
+            key: `${state.gameId}-hidden-${index}`,
+            kind: "hidden-deal",
+            index,
+            delay: index * 90,
+          });
+        state.you.hand.forEach((card, index) =>
+          nextFlights.push({
+            key: `${state.gameId}-hand-${card.id}`,
+            kind: "hand-deal",
+            card,
+            index,
+            delay: 320 + index * 85,
+          }),
+        );
+        sound.play("shuffle");
+        sound.play("deal", 260);
+      } else if (collectedField) {
+        addedCards.forEach((card, index) =>
+          nextFlights.push({
+            key: `collect-${state.revision}-${card.id}`,
+            kind: "collect",
+            card,
+            index,
+            delay: index * 120,
+          }),
+        );
+        sound.play("collect");
+      } else if (drawDelta > 0 && addedCards.length > 0) {
+        addedCards.forEach((card, index) =>
+          nextFlights.push({
+            key: `draw-${state.revision}-${card.id}`,
+            kind: "draw",
+            card,
+            index,
+            delay: index * 120,
+          }),
+        );
+        sound.play("draw");
+      }
+
+      if (
+        !startingDeal &&
+        !previous.you.setupComplete &&
+        state.you.setupComplete &&
+        previous.you.handCount > state.you.handCount
+      ) {
+        previous.you.hand
+          .filter(({ id }) => !state.you.hand.some((card) => card.id === id))
+          .forEach((card, index) =>
+            nextFlights.push({
+              key: `setup-${state.revision}-${card.id}`,
+              kind: "setup",
+              card,
+              index,
+              delay: index * 100,
+            }),
+          );
+        sound.play("place");
+      }
+
+      const opponentDrew =
+        drawDelta > addedCards.length &&
+        (state.opponent?.handCount ?? 0) > (previous.opponent?.handCount ?? 0);
+      if (opponentDrew) {
+        const count = Math.min(
+          drawDelta - addedCards.length,
+          (state.opponent?.handCount ?? 0) - (previous.opponent?.handCount ?? 0),
+        );
+        for (let index = 0; index < count; index += 1)
+          nextFlights.push({
+            key: `opponent-draw-${state.revision}-${index}`,
+            kind: "opponent-draw",
+            index,
+            delay: index * 100,
+          });
+        sound.play("receive");
+      }
+
       if (state.burnedCount > previous.burnedCount) sound.play("burn");
       else if (state.playPile.length > previous.playPile.length) sound.play("play");
-      else if (state.you.handCount > previous.you.handCount + 1) sound.play("pickup");
+      else if (state.you.handCount > previous.you.handCount + Math.max(drawDelta, 0))
+        sound.play("pickup");
+      if (!previous.opponent && state.opponent) sound.play("join");
+      if (!previous.you.ready && state.you.ready) sound.play("ready");
+      if (
+        previous.you.hiddenFieldCount > state.you.hiddenFieldCount ||
+        (previous.opponent?.hiddenFieldCount ?? 0) > (state.opponent?.hiddenFieldCount ?? 0)
+      )
+        sound.play("reveal");
       if (state.phase === "finished" && previous.phase !== "finished")
         sound.play(state.winnerId === state.you.id ? "win" : "lose");
+
+      if (nextFlights.length > 0) {
+        setFlights(nextFlights);
+        if (flightTimerRef.current) window.clearTimeout(flightTimerRef.current);
+        flightTimerRef.current = window.setTimeout(() => setFlights([]), 1900);
+      }
     }
     previousRef.current = state;
   }, [sound, state]);
@@ -347,6 +507,7 @@ export function App() {
   useEffect(
     () => () => {
       socketRef.current?.disconnect();
+      if (flightTimerRef.current) window.clearTimeout(flightTimerRef.current);
     },
     [],
   );
@@ -357,8 +518,8 @@ export function App() {
     connect(entered.roomCode);
   };
 
-  const act = async (command: GameCommand) => {
-    if (!state || !socketRef.current) return;
+  const act = async (command: GameCommand): Promise<ActionResult | undefined> => {
+    if (!state || !socketRef.current) return undefined;
     sound.unlock();
     const envelope: ActionEnvelope = {
       actionId: crypto.randomUUID(),
@@ -366,8 +527,11 @@ export function App() {
       command,
     };
     const result = (await socketRef.current.emitWithAck("game:action", envelope)) as ActionResult;
-    if (!result.accepted) setNotice(result.error?.message ?? "That move was rejected.");
-    else setNotice("");
+    if (!result.accepted) {
+      setNotice(result.error?.message ?? "That move was rejected.");
+      sound.play("reject");
+    } else setNotice("");
+    return result;
   };
 
   if (loadingRoom)
@@ -388,6 +552,10 @@ export function App() {
     state.playPile.length > 0 &&
     !state.you.hand.some(({ rank }) => isLegal(state, rank));
   const selectedRank = state.you.hand.find(({ id }) => id === selected[0])?.rank;
+  const sortedHand = [...state.you.hand].sort(
+    (left, right) => handRankValue.get(left.rank)! - handRankValue.get(right.rank)!,
+  );
+  const canDraw = state.phase === "playing" && state.drawCount > 0 && state.you.handCount < 5;
 
   const toggleCard = (card: CardType) => {
     if (state.phase === "setup") {
@@ -479,9 +647,22 @@ export function App() {
 
         <div className="table-center">
           <div className="deck-stack">
-            <CardBack label="Draw pile" />
+            <CardBack
+              label={
+                state.drawCount === 0
+                  ? "Draw pile is empty"
+                  : state.you.handCount >= 5
+                    ? "Hand is full at five cards"
+                    : `Draw one card, ${state.drawCount} remaining`
+              }
+              disabled={!canDraw || drawBusy}
+              onClick={() => {
+                setDrawBusy(true);
+                void act({ type: "DRAW_CARD" }).finally(() => setDrawBusy(false));
+              }}
+            />
             <span className="count-badge">{state.drawCount}</span>
-            <small>Draw pile</small>
+            <small>{drawBusy ? "Drawing…" : "Draw pile"}</small>
           </div>
           <div className={`play-stack ${state.burnedCount ? "play-stack--active" : ""}`}>
             {state.playPile.length ? (
@@ -526,13 +707,13 @@ export function App() {
             className={`hand ${state.phase === "setup" ? "hand--setup" : ""}`}
             aria-label="Your hand"
           >
-            {state.you.hand.map((card, index) => (
+            {sortedHand.map((card, index) => (
               <Card
                 key={card.id}
                 card={card}
                 selected={selected.includes(card.id)}
                 index={index}
-                count={state.you.hand.length}
+                count={sortedHand.length}
                 onClick={() => toggleCard(card)}
               />
             ))}
@@ -546,6 +727,8 @@ export function App() {
           </div>
         </div>
       </section>
+
+      <FlightLayer flights={flights} />
 
       <div className="action-dock">
         {state.phase === "lobby" && (

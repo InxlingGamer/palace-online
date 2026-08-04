@@ -265,7 +265,7 @@ describe("pickup, drawing, and endgame", () => {
     expect(state.stats.pickups.A).toBe(1);
   });
 
-  it("draws up to five without exceeding the target", () => {
+  it("automatically draws only to the three-card minimum after a play", () => {
     const play = card(Rank.Five);
     const state = playing([play, card(Rank.Six)], [card(Rank.Three)]);
     state.drawPile = [
@@ -276,8 +276,47 @@ describe("pickup, drawing, and endgame", () => {
       card(Rank.Queen),
     ];
     const next = accepted(applyCommand(state, "A", { type: "PLAY_CARDS", cardIds: [play.id] }));
-    expect(next.players[0]?.hand).toHaveLength(5);
-    expect(next.drawPile).toHaveLength(1);
+    expect(next.players[0]?.hand).toHaveLength(3);
+    expect(next.drawPile).toHaveLength(3);
+  });
+
+  it("manually draws one card without consuming either player's turn", () => {
+    const state = playing([card(Rank.Five)], [card(Rank.Six)]);
+    state.drawPile = [card(Rank.Ace), card(Rank.Two)];
+    const first = accepted(applyCommand(state, "A", { type: "DRAW_CARD" }));
+    expect(first.players[0]?.hand).toHaveLength(2);
+    expect(first.currentTurnPlayerId).toBe("A");
+    const second = accepted(applyCommand(first, "B", { type: "DRAW_CARD" }));
+    expect(second.players[1]?.hand).toHaveLength(2);
+    expect(second.currentTurnPlayerId).toBe("A");
+  });
+
+  it("allows drawing during a pending seven choice", () => {
+    const state = playing([card(Rank.Five)], [card(Rank.Six)]);
+    state.drawPile = [card(Rank.Ace)];
+    state.pendingSevenChoiceFor = "A";
+    const next = accepted(applyCommand(state, "B", { type: "DRAW_CARD" }));
+    expect(next.players[1]?.hand).toHaveLength(2);
+    expect(next.pendingSevenChoiceFor).toBe("A");
+  });
+
+  it("rejects manual draws at five cards or from an empty pile", () => {
+    const full = playing([
+      card(Rank.Three),
+      card(Rank.Four),
+      card(Rank.Five),
+      card(Rank.Six),
+      card(Rank.Eight),
+    ]);
+    full.drawPile = [card(Rank.Ace)];
+    expect(applyCommand(full, "A", { type: "DRAW_CARD" })).toMatchObject({
+      ok: false,
+      code: "HAND_FULL",
+    });
+    expect(applyCommand(playing([card(Rank.Three)]), "A", { type: "DRAW_CARD" })).toMatchObject({
+      ok: false,
+      code: "DRAW_PILE_EMPTY",
+    });
   });
 
   it("promotes selected field cards after an empty hand and draw pile", () => {

@@ -14,7 +14,7 @@ To choose the starter, each hand is filtered to remove twos and sorted from low 
 
 A move is one card or multiple cards of exactly one rank. A normal rank must equal or exceed the top rank. Power cards are always legal. An empty or reset pile accepts any rank.
 
-After a successful play, that player draws until holding five cards while the draw pile has cards. A pile pickup may leave a hand above five; excess cards are never discarded. If there is no legal hand card and the pile is nonempty, the player must take the entire pile and end their turn.
+After a successful play, that player draws automatically only when holding fewer than three cards, and only until holding three while the draw pile has cards. During active play, either player may manually draw one card at any time, including outside their turn or while a seven choice is pending; drawing does not change the turn. Manual drawing is unavailable when the hand already contains five or more cards or when the draw pile is empty. A pile pickup may leave a hand above five; excess cards are never discarded. If there is no legal hand card and the pile is nonempty, the player must take the entire pile and end their turn.
 
 ## Power cards and precedence
 

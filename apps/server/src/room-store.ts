@@ -31,6 +31,7 @@ interface RoomRecord {
   state: GameState;
   sessions: Map<string, Session>;
   lastActivityAt: number;
+  emptyTimer: NodeJS.Timeout | null;
 }
 
 export interface Membership {
@@ -86,8 +87,10 @@ export class RoomStore {
         ],
       ]),
       lastActivityAt: Date.now(),
+      emptyTimer: null,
     };
     this.rooms.set(roomCode, record);
+    this.scheduleEmptyDeletion(roomCode, record);
     return { roomCode, token, playerId, state: projectState(record.state, playerId) };
   }
 
@@ -109,6 +112,9 @@ export class RoomStore {
       disconnectTimer: null,
     });
     record.lastActivityAt = Date.now();
+    if (record.emptyTimer) clearTimeout(record.emptyTimer);
+    record.emptyTimer = null;
+    this.scheduleEmptyDeletion(roomCode, record);
     this.onStateChange(roomCode);
     return { roomCode, token, playerId, state: projectState(record.state, playerId) };
   }
@@ -130,6 +136,8 @@ export class RoomStore {
     const membership = this.authenticate(roomCode, token);
     if (!membership) return null;
     const record = this.rooms.get(roomCode)!;
+    if (record.emptyTimer) clearTimeout(record.emptyTimer);
+    record.emptyTimer = null;
     const session = record.sessions.get(token)!;
     if (session.disconnectTimer) clearTimeout(session.disconnectTimer);
     session.disconnectTimer = null;
@@ -155,12 +163,39 @@ export class RoomStore {
       const latest = this.rooms.get(roomCode);
       const latestSession = latest?.sessions.get(token);
       if (!latest || !latestSession || latestSession.socketIds.size > 0) return;
+      if (this.connectedSocketCount(latest) === 0) return;
       latest.state =
         latest.state.phase === "playing"
           ? finishByForfeit(latest.state, latestSession.playerId)
           : expireGame(latest.state);
       this.onStateChange(roomCode);
     }, this.reconnectGraceMs);
+    this.scheduleEmptyDeletion(roomCode, record);
+  }
+
+  private connectedSocketCount(record: RoomRecord): number {
+    let count = 0;
+    for (const session of record.sessions.values()) count += session.socketIds.size;
+    return count;
+  }
+
+  private scheduleEmptyDeletion(roomCode: string, record: RoomRecord): void {
+    if (record.emptyTimer || this.connectedSocketCount(record) > 0) return;
+    record.emptyTimer = setTimeout(() => {
+      const latest = this.rooms.get(roomCode);
+      if (!latest || this.connectedSocketCount(latest) > 0) return;
+      this.clearTimers(latest);
+      this.rooms.delete(roomCode);
+    }, this.reconnectGraceMs);
+  }
+
+  private clearTimers(record: RoomRecord): void {
+    if (record.emptyTimer) clearTimeout(record.emptyTimer);
+    record.emptyTimer = null;
+    for (const session of record.sessions.values()) {
+      if (session.disconnectTimer) clearTimeout(session.disconnectTimer);
+      session.disconnectTimer = null;
+    }
   }
 
   apply(roomCode: string, token: string, envelope: ActionEnvelope): ActionResult {
@@ -241,18 +276,14 @@ export class RoomStore {
   cleanup(now = Date.now()): void {
     for (const [code, record] of this.rooms) {
       if (now - record.lastActivityAt <= this.roomIdleTtlMs) continue;
-      for (const session of record.sessions.values()) {
-        if (session.disconnectTimer) clearTimeout(session.disconnectTimer);
-      }
+      this.clearTimers(record);
       this.rooms.delete(code);
     }
   }
 
   close(): void {
     for (const record of this.rooms.values()) {
-      for (const session of record.sessions.values()) {
-        if (session.disconnectTimer) clearTimeout(session.disconnectTimer);
-      }
+      this.clearTimers(record);
     }
   }
 }
