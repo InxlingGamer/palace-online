@@ -118,7 +118,7 @@ export function addPlayer(
   });
   next.stats.pickups[player.id] = 0;
   next.revision += 1;
-  next.message = next.players.length === 2 ? "Both players are here. Ready up!" : next.message;
+  next.message = next.players.length === 2 ? "Both players connected." : next.message;
   return { ok: true, state: next };
 }
 
@@ -264,7 +264,7 @@ function finishIfWinner(state: GameState, player: PlayerState): boolean {
   state.resultReason = "finished";
   state.currentTurnPlayerId = null;
   state.restriction = null;
-  state.message = `${player.name} rules the Palace!`;
+  state.message = `${player.name} wins.`;
   for (const participant of state.players) participant.ready = false;
   return true;
 }
@@ -291,7 +291,7 @@ function playCommittedCards(state: GameState, player: PlayerState, cards: Card[]
   if (directTen || fourBurn) {
     burnPile(state);
     state.pendingSevenChoiceFor = null;
-    state.message = directTen ? "Ten! The pile burns." : "Four of a kind! The pile burns.";
+    state.message = directTen ? "10 burned the pile." : "Four matching cards burned the pile.";
   }
 
   drawToMinimum(state, player);
@@ -300,14 +300,14 @@ function playCommittedCards(state: GameState, player: PlayerState, cards: Card[]
   if (!directTen && !fourBurn && playedRank === Rank.Seven) {
     state.pendingSevenChoiceFor = player.id;
     state.currentTurnPlayerId = player.id;
-    state.message = "Choose whether your opponent must play higher or lower than seven.";
+    state.message = "Choose higher or lower than 7.";
     return;
   }
 
   if (finishIfWinner(state, player)) return;
   if (directTen || fourBurn || playedRank === Rank.Two) {
     state.currentTurnPlayerId = player.id;
-    state.message = directTen || fourBurn ? state.message : "Two resets the pile. Play again!";
+    state.message = directTen || fourBurn ? state.message : "2 reset the pile. Play again.";
   } else {
     state.currentTurnPlayerId = opponentOf(state, player.id).id;
     state.message = `It is ${opponentOf(state, player.id).name}'s turn.`;
@@ -362,7 +362,7 @@ function applySetup(
     slot.card = chosen[index]!;
   });
   player.setupComplete = true;
-  state.message = `${player.name} locked in their field cards.`;
+  state.message = `${player.name} selected 3 cards.`;
   if (state.players.every(({ setupComplete }) => setupComplete)) {
     state.phase = "playing";
     const starterIndex = compareStartingHands(
@@ -439,7 +439,7 @@ function applyRematch(
 ): EngineResult | null {
   if (state.phase !== "finished") return fail("INVALID_PHASE", "The current game is not finished.");
   player.ready = true;
-  state.message = `${player.name} wants a rematch.`;
+  state.message = `${player.name} requested a rematch.`;
   if (state.players.every(({ ready }) => ready)) Object.assign(state, dealGame(state, random));
   return null;
 }

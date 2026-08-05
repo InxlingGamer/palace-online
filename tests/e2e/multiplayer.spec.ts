@@ -4,7 +4,7 @@ async function createPlayer(context: BrowserContext, name: string): Promise<Page
   const page = await context.newPage();
   await page.goto("/");
   await page.getByLabel("Display name").fill(name);
-  await page.getByRole("button", { name: "Create a room" }).click();
+  await page.getByRole("button", { name: "Create room" }).click();
   await expect(page.getByRole("button", { name: /Copy invitation/ })).toBeVisible();
   return page;
 }
@@ -34,7 +34,7 @@ test("two isolated players can join, ready, set up, synchronize, and reconnect",
 
   await Promise.all(
     [playerA, playerB].flatMap((page) => [
-      expect(page.getByText("Choose your fortress")).toBeVisible(),
+      expect(page.getByText("Choose 3 cards")).toBeVisible(),
       expect(page.locator(".card-flight--hidden-deal")).toHaveCount(3),
       expect(page.locator(".card-flight--hand-deal")).toHaveCount(6),
     ]),
@@ -89,7 +89,8 @@ test("two isolated players can join, ready, set up, synchronize, and reconnect",
 test("touch viewport keeps primary controls reachable", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByLabel("Display name")).toBeInViewport();
-  await expect(page.getByRole("button", { name: "Create a room" })).toBeInViewport();
+  await expect(page.getByRole("button", { name: "Create room" })).toBeInViewport();
+  await expect(page.getByText(/No account|fortress|private table/i)).toHaveCount(0);
   expect(
     await page.evaluate(() => ({
       horizontal: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -98,7 +99,7 @@ test("touch viewport keeps primary controls reachable", async ({ page }) => {
   ).toEqual({ horizontal: 0, vertical: 0 });
 
   await page.getByLabel("Display name").fill("Kylie");
-  await page.getByRole("button", { name: "Create a room" }).click();
+  await page.getByRole("button", { name: "Create room" }).click();
   await expect(page.getByText("Share the room code or invitation link.")).toBeVisible();
   await expect(page.getByText("Share the room code or invitation link.")).toBeInViewport();
   await expect(page.getByText("Draw pile")).toBeInViewport();

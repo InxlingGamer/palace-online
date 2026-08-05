@@ -38,6 +38,7 @@ export function createRuntime(config: ServerConfig) {
     config.ROOM_IDLE_TTL_MS,
     config.INVALID_ACTION_LIMIT,
     random,
+    config.NODE_ENV === "test" ? config.TEST_GAME_SCENARIO : undefined,
   );
   const httpServer = createServer(app);
   const io = new Server(httpServer, {

@@ -4,6 +4,7 @@ const remoteBaseURL = process.env.E2E_BASE_URL?.replace(/\/+$/, "");
 
 export default defineConfig({
   testDir: "tests/e2e",
+  testIgnore: "scenarios/**",
   outputDir: "output/playwright/results",
   timeout: 90_000,
   workers: 2,

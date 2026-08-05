@@ -18,6 +18,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:scenarios": "cross-env TEST_GAME_SCENARIO=seven-restriction playwright test -c playwright.scenario.config.ts && cross-env TEST_GAME_SCENARIO=blind-pickup playwright test -c playwright.scenario.config.ts && cross-env TEST_GAME_SCENARIO=finished-result playwright test -c playwright.scenario.config.ts",
+    "test:e2e:full": "pnpm test:e2e && pnpm test:e2e:scenarios",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {
@@ -25,6 +27,7 @@
     "@playwright/test": "^1.54.2",
     "@types/node": "^24.1.0",
     "concurrently": "^9.2.0",
+    "cross-env": "^10.0.0",
     "eslint": "^9.32.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.20",

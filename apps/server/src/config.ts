@@ -17,6 +17,7 @@ const schema = z.object({
   ROOM_CREATE_LIMIT: z.coerce.number().int().positive().default(20),
   INVALID_ACTION_LIMIT: z.coerce.number().int().positive().default(30),
   TEST_SHUFFLE_SEED: z.string().optional(),
+  TEST_GAME_SCENARIO: z.enum(["seven-restriction", "blind-pickup", "finished-result"]).optional(),
 });
 
 const parsed = schema.parse(process.env);

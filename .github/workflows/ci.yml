@@ -37,6 +37,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm exec playwright install --with-deps chromium webkit
-      - run: pnpm test:e2e
+      - run: pnpm test:e2e:full
         env:
           TEST_SHUFFLE_SEED: github-actions

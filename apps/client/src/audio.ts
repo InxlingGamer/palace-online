@@ -89,6 +89,37 @@ export function useSound() {
         source.start(at);
       };
 
+      const horn = (frequency: number, endFrequency: number, duration: number, offset = 0) => {
+        const oscillator = audio.createOscillator();
+        const overtone = audio.createOscillator();
+        const filter = audio.createBiquadFilter();
+        const gain = audio.createGain();
+        const overtoneGain = audio.createGain();
+        const at = start + offset;
+        oscillator.type = "sawtooth";
+        overtone.type = "triangle";
+        oscillator.frequency.setValueAtTime(frequency, at);
+        oscillator.frequency.exponentialRampToValueAtTime(endFrequency, at + duration);
+        overtone.frequency.setValueAtTime(frequency * 1.99, at);
+        overtone.frequency.exponentialRampToValueAtTime(endFrequency * 1.96, at + duration);
+        filter.type = "lowpass";
+        filter.frequency.setValueAtTime(760, at);
+        filter.frequency.exponentialRampToValueAtTime(330, at + duration);
+        filter.Q.setValueAtTime(4.5, at);
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(0.065, at + 0.08);
+        gain.gain.setValueAtTime(0.052, at + Math.max(0.09, duration - 0.16));
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + duration);
+        overtoneGain.gain.setValueAtTime(0.018, at);
+        oscillator.connect(filter);
+        overtone.connect(overtoneGain).connect(filter);
+        filter.connect(gain).connect(audio.destination);
+        oscillator.start(at);
+        overtone.start(at);
+        oscillator.stop(at + duration + 0.03);
+        overtone.stop(at + duration + 0.03);
+      };
+
       switch (name) {
         case "shuffle":
           for (let index = 0; index < 5; index += 1) noise(0.09, 0.08, 1700, index * 0.055);
@@ -137,8 +168,11 @@ export function useSound() {
           );
           break;
         case "lose":
-          tone(310, 0.42, 0.06, "triangle", 105);
-          tone(220, 0.38, 0.04, "sine", 82, 0.12);
+          horn(294, 196, 0.62);
+          horn(247, 147, 0.72, 0.48);
+          horn(196, 82, 1.05, 1.02);
+          noise(0.14, 0.09, 620, 1.62, "lowpass");
+          noise(0.22, 0.07, 360, 1.93, "lowpass");
           break;
       }
     },

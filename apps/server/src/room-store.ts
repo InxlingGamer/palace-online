@@ -16,6 +16,7 @@ import {
   type ActionResult,
   type PublicGameState,
 } from "@palace/shared";
+import { applyTestScenario, type TestGameScenario } from "./test-scenarios.js";
 
 const ROOM_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
@@ -50,6 +51,7 @@ export class RoomStore {
     private readonly roomIdleTtlMs: number,
     private readonly invalidActionLimit: number,
     private readonly random: RandomInt = randomInt,
+    private readonly testScenario?: TestGameScenario,
   ) {}
 
   private roomCode(): string {
@@ -243,7 +245,11 @@ export class RoomStore {
       this.remember(session, result);
       return result;
     }
-    record.state = applied.state;
+    const enteredPlaying = record.state.phase === "setup" && applied.state.phase === "playing";
+    record.state =
+      enteredPlaying && this.testScenario
+        ? applyTestScenario(applied.state, this.testScenario)
+        : applied.state;
     record.lastActivityAt = now;
     const result: ActionResult = {
       actionId: envelope.actionId,
