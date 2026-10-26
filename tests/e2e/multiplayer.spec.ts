@@ -111,3 +111,42 @@ test("touch viewport keeps primary controls reachable", async ({ page }) => {
     })),
   ).toEqual({ horizontal: 0, vertical: 0 });
 });
+
+test("both players can draw at the same moment without a rejection", async ({ browser }) => {
+  const contextA = await browser.newContext();
+  const contextB = await browser.newContext();
+  const playerA = await createPlayer(contextA, "Ada");
+  const label = await playerA
+    .getByRole("button", { name: /Copy invitation/ })
+    .getAttribute("aria-label");
+  const code = label?.match(/[A-HJ-NP-Z2-9]{6}/)?.[0];
+  const playerB = await contextB.newPage();
+  await playerB.goto(`/room/${code}`);
+  await playerB.getByLabel("Display name").fill("Ben");
+  await playerB.getByRole("button", { name: "Join room" }).click();
+  await playerA.getByRole("button", { name: "I'm ready" }).click();
+  await playerB.getByRole("button", { name: "I'm ready" }).click();
+
+  for (const page of [playerA, playerB]) {
+    const hand = page.locator(".hand [data-card-id]");
+    await expect(hand).toHaveCount(6);
+    for (const index of [0, 1, 2]) await hand.nth(index).click();
+    await page.getByRole("button", { name: "Lock in cards" }).click();
+  }
+  await expect(playerA.locator(".deck-stack button")).toBeEnabled();
+  await expect(playerB.locator(".deck-stack button")).toBeEnabled();
+
+  // The original "network mismatch" bug: the second simultaneous draw was rejected as stale.
+  await Promise.all([
+    playerA.locator(".deck-stack button").click(),
+    playerB.locator(".deck-stack button").click(),
+  ]);
+  for (const page of [playerA, playerB]) {
+    await expect(page.locator(".hand [data-card-id]")).toHaveCount(4);
+    await expect(page.locator(".opponent-hand .card--back")).toHaveCount(4);
+    await expect(page.locator(".toast")).toHaveCount(0);
+  }
+
+  await contextA.close();
+  await contextB.close();
+});

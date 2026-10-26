@@ -35,4 +35,4 @@ The selected hidden card leaves its slot permanently. A legal reveal resolves li
 
 A player wins after a legal resolution when their hand and both field layers are empty. A final 2, 10, or matching-card burn wins immediately; the unused extra turn is ignored. A final 7 must receive its direction choice before victory. Results show turn and pickup counts. Both players must request a rematch; the server then creates a new game ID, shuffle, deal, and setup while preserving the room seats.
 
-An active player gets 120 seconds to reconnect. Expiry during play gives the connected rival a forfeit victory. Expiry before regular play marks the room expired without a winner.
+An active player gets 10 minutes to reconnect, long enough to survive a locked phone or a quick app switch. Expiry during play gives the connected rival a forfeit victory. A single disconnect does not expire lobby, setup, or finished games, and finished results retain their winner. When both players leave, the room is kept for the configured room idle TTL. If a player returns after both disconnect deadlines elapsed, the absent player receives a fresh full reconnect grace.
