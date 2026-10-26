@@ -44,6 +44,10 @@ export function createRuntime(config: ServerConfig) {
   const io = new Server(httpServer, {
     cors: { origin: config.allowedOrigins, credentials: true },
     transports: ["websocket", "polling"],
+    allowRequest(request, callback) {
+      const origin = request.headers.origin;
+      callback(null, !origin || config.allowedOrigins.includes(origin));
+    },
   });
 
   const cookieOptions = {
@@ -114,13 +118,22 @@ export function createRuntime(config: ServerConfig) {
   });
 
   io.use((socket, next) => {
-    const code = roomCodeSchema.safeParse(socket.handshake.auth.roomCode);
-    const token = parseCookie(socket.handshake.headers.cookie ?? "")[COOKIE_NAME];
-    if (!code.success || !store.authenticate(code.data, token))
-      return next(new Error("Invalid room session"));
-    socket.data.roomCode = code.data;
-    socket.data.token = token;
-    next();
+    try {
+      const code = roomCodeSchema.safeParse(socket.handshake.auth.roomCode);
+      const token = parseCookie(socket.handshake.headers.cookie ?? "")[COOKIE_NAME];
+      if (
+        !code.success ||
+        !token ||
+        !store.authenticate(code.data, token) ||
+        !store.canConnect(code.data, token)
+      )
+        return next(new Error("Invalid room session"));
+      socket.data.roomCode = code.data;
+      socket.data.token = token;
+      next();
+    } catch {
+      next(new Error("Invalid room session"));
+    }
   });
 
   const emitRoom = (roomCode: string) => {
@@ -129,33 +142,60 @@ export function createRuntime(config: ServerConfig) {
     }
   };
   store.onStateChange = emitRoom;
+  store.onSessionRevoked = (roomCode, playerId) => {
+    io.in(`${roomCode}:${playerId}`).disconnectSockets(true);
+  };
 
   io.on("connection", (socket) => {
-    const roomCode = socket.data.roomCode as string;
-    const token = socket.data.token as string;
-    const membership = store.connect(roomCode, token, socket.id);
-    if (!membership) return socket.disconnect(true);
-    void socket.join(`${roomCode}:${membership.playerId}`);
-    emitRoom(roomCode);
+    try {
+      const roomCode = socket.data.roomCode as string;
+      const token = socket.data.token as string;
+      const membership = store.connect(roomCode, token, socket.id);
+      if (!membership) return socket.disconnect(true);
+      socket.on("disconnect", () => store.disconnect(roomCode, token, socket.id));
+      void socket.join(`${roomCode}:${membership.playerId}`);
+      emitRoom(roomCode);
 
-    socket.on("game:action", (untrusted, acknowledge?: (result: unknown) => void) => {
-      const parsed = actionEnvelopeSchema.safeParse(untrusted);
-      if (!parsed.success) {
-        const result = {
-          actionId: typeof untrusted?.actionId === "string" ? untrusted.actionId : "invalid",
-          accepted: false,
-          revision: membership.state.revision,
-          error: { code: "INVALID_INPUT", message: "The action was malformed." },
+      socket.on("game:action", (untrusted, acknowledge?: unknown) => {
+        const ack = (result: unknown) => {
+          if (typeof acknowledge === "function") acknowledge(result);
         };
-        acknowledge?.(result);
-        return;
-      }
-      const result = store.apply(roomCode, token, parsed.data);
-      acknowledge?.(result);
-      if (!result.accepted && result.error?.code === "STALE_STATE") emitRoom(roomCode);
-    });
-
-    socket.on("disconnect", () => store.disconnect(roomCode, token, socket.id));
+        try {
+          const revision = store.rooms.get(roomCode)?.state.revision ?? 0;
+          const actionId = typeof untrusted?.actionId === "string" ? untrusted.actionId : "invalid";
+          if (!store.consumeAction(roomCode, token)) {
+            ack({
+              actionId,
+              accepted: false,
+              revision,
+              error: { code: "RATE_LIMITED", message: "Too many actions. Please slow down." },
+            });
+            return;
+          }
+          const parsed = actionEnvelopeSchema.safeParse(untrusted);
+          if (!parsed.success) {
+            ack({
+              actionId,
+              accepted: false,
+              revision,
+              error: { code: "INVALID_INPUT", message: "The action was malformed." },
+            });
+            return;
+          }
+          const result = store.apply(roomCode, token, parsed.data);
+          ack(result);
+          if (!result.accepted && result.error?.code === "STALE_STATE") emitRoom(roomCode);
+        } catch (error) {
+          console.error(error instanceof Error ? error.message : "Action processing failed");
+          ack({
+            accepted: false,
+            error: { code: "INVALID_INPUT", message: "The action could not be processed." },
+          });
+        }
+      });
+    } catch {
+      socket.disconnect(true);
+    }
   });
 
   if (config.NODE_ENV === "production") {

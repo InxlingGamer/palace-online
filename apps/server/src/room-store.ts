@@ -3,7 +3,6 @@ import {
   addPlayer,
   applyCommand,
   createLobby,
-  expireGame,
   finishByForfeit,
   projectState,
   setConnected,
@@ -24,6 +23,8 @@ interface Session {
   playerId: string;
   actionResults: Map<string, ActionResult>;
   invalidActions: number[];
+  actionTokens: number;
+  actionRefilledAt: number;
   socketIds: Set<string>;
   disconnectTimer: NodeJS.Timeout | null;
 }
@@ -44,6 +45,7 @@ export interface Membership {
 
 export class RoomStore {
   readonly rooms = new Map<string, RoomRecord>();
+  onSessionRevoked: (roomCode: string, playerId: string) => void = () => undefined;
   onStateChange: (roomCode: string) => void = () => undefined;
 
   constructor(
@@ -83,6 +85,8 @@ export class RoomStore {
             playerId,
             actionResults: new Map(),
             invalidActions: [],
+            actionTokens: RULES.actionBurstCapacity,
+            actionRefilledAt: Date.now(),
             socketIds: new Set(),
             disconnectTimer: null,
           },
@@ -110,6 +114,8 @@ export class RoomStore {
       playerId,
       actionResults: new Map(),
       invalidActions: [],
+      actionTokens: RULES.actionBurstCapacity,
+      actionRefilledAt: Date.now(),
       socketIds: new Set(),
       disconnectTimer: null,
     });
@@ -125,7 +131,8 @@ export class RoomStore {
     if (!token) return null;
     const record = this.rooms.get(roomCode);
     const session = record?.sessions.get(token);
-    if (!record || !session) return null;
+    if (!record || !session || !record.state.players.some(({ id }) => id === session.playerId))
+      return null;
     return {
       roomCode,
       token,
@@ -136,7 +143,7 @@ export class RoomStore {
 
   connect(roomCode: string, token: string, socketId: string): Membership | null {
     const membership = this.authenticate(roomCode, token);
-    if (!membership) return null;
+    if (!membership || !this.canConnect(roomCode, token)) return null;
     const record = this.rooms.get(roomCode)!;
     if (record.emptyTimer) clearTimeout(record.emptyTimer);
     record.emptyTimer = null;
@@ -147,6 +154,12 @@ export class RoomStore {
     const player = record.state.players.find(({ id }) => id === session.playerId);
     if (player && !player.connected)
       record.state = setConnected(record.state, session.playerId, true);
+    if (record.state.phase === "playing") {
+      for (const [otherToken, other] of record.sessions) {
+        if (otherToken !== token && other.socketIds.size === 0 && !other.disconnectTimer)
+          this.scheduleForfeit(roomCode, otherToken, other);
+      }
+    }
     record.lastActivityAt = Date.now();
     this.onStateChange(roomCode);
     return { ...membership, state: projectState(record.state, session.playerId) };
@@ -161,18 +174,39 @@ export class RoomStore {
     record.state = setConnected(record.state, session.playerId, false);
     record.lastActivityAt = Date.now();
     this.onStateChange(roomCode);
+    if (!session.disconnectTimer) this.scheduleForfeit(roomCode, token, session);
+    this.scheduleEmptyDeletion(roomCode, record);
+  }
+
+  canConnect(roomCode: string, token: string): boolean {
+    const session = this.rooms.get(roomCode)?.sessions.get(token);
+    return Boolean(session && session.socketIds.size < RULES.maxSocketsPerSession);
+  }
+
+  consumeAction(roomCode: string, token: string): boolean {
+    const session = this.rooms.get(roomCode)?.sessions.get(token);
+    if (!session) return false;
+    const now = Date.now();
+    session.actionTokens = Math.min(
+      RULES.actionBurstCapacity,
+      session.actionTokens +
+        ((now - session.actionRefilledAt) / 1000) * RULES.actionRefillPerSecond,
+    );
+    session.actionRefilledAt = now;
+    if (session.actionTokens < 1) return false;
+    session.actionTokens -= 1;
+    return true;
+  }
+
+  private scheduleForfeit(roomCode: string, token: string, session: Session): void {
     session.disconnectTimer = setTimeout(() => {
+      session.disconnectTimer = null;
       const latest = this.rooms.get(roomCode);
-      const latestSession = latest?.sessions.get(token);
-      if (!latest || !latestSession || latestSession.socketIds.size > 0) return;
-      if (this.connectedSocketCount(latest) === 0) return;
-      latest.state =
-        latest.state.phase === "playing"
-          ? finishByForfeit(latest.state, latestSession.playerId)
-          : expireGame(latest.state);
+      if (!latest || latest.sessions.get(token) !== session || session.socketIds.size > 0) return;
+      if (latest.state.phase !== "playing" || this.connectedSocketCount(latest) === 0) return;
+      latest.state = finishByForfeit(latest.state, session.playerId);
       this.onStateChange(roomCode);
     }, this.reconnectGraceMs);
-    this.scheduleEmptyDeletion(roomCode, record);
   }
 
   private connectedSocketCount(record: RoomRecord): number {
@@ -188,7 +222,7 @@ export class RoomStore {
       if (!latest || this.connectedSocketCount(latest) > 0) return;
       this.clearTimers(latest);
       this.rooms.delete(roomCode);
-    }, this.reconnectGraceMs);
+    }, this.roomIdleTtlMs);
   }
 
   private clearTimers(record: RoomRecord): void {
@@ -223,12 +257,26 @@ export class RoomStore {
         error: { code: "RATE_LIMITED", message: "Too many rejected actions. Please slow down." },
       };
     }
-    if (envelope.expectedRevision !== record.state.revision) {
+    const turnCommand = [
+      "PLAY_CARDS",
+      "PICK_UP_PILE",
+      "CHOOSE_SEVEN_DIRECTION",
+      "SELECT_HIDDEN_CARD",
+    ].includes(envelope.command.type);
+    if (
+      turnCommand &&
+      (envelope.expectedTurn === undefined
+        ? envelope.expectedRevision !== record.state.revision
+        : envelope.expectedTurn !== record.state.turnSeq)
+    ) {
       const result: ActionResult = {
         actionId: envelope.actionId,
         accepted: false,
         revision: record.state.revision,
-        error: { code: "STALE_STATE", message: "The game changed. Your view has been refreshed." },
+        error: {
+          code: "STALE_STATE",
+          message: "The table changed before your move arrived. Please try again.",
+        },
       };
       this.remember(session, result);
       return result;
@@ -257,7 +305,19 @@ export class RoomStore {
       revision: record.state.revision,
     };
     this.remember(session, result);
-    this.onStateChange(roomCode);
+    if (envelope.command.type === "LEAVE_ROOM") {
+      if (session.disconnectTimer) clearTimeout(session.disconnectTimer);
+      session.disconnectTimer = null;
+      record.sessions.delete(token);
+      this.scheduleEmptyDeletion(roomCode, record);
+      // Flush the acknowledgement before closing the leaving player's transport.
+      queueMicrotask(() => {
+        this.onSessionRevoked(roomCode, session.playerId);
+        this.onStateChange(roomCode);
+      });
+    } else if (applied.changed !== false) {
+      this.onStateChange(roomCode);
+    }
     return result;
   }
 
@@ -281,7 +341,11 @@ export class RoomStore {
 
   cleanup(now = Date.now()): void {
     for (const [code, record] of this.rooms) {
-      if (now - record.lastActivityAt <= this.roomIdleTtlMs) continue;
+      if (
+        now - record.lastActivityAt <= this.roomIdleTtlMs ||
+        this.connectedSocketCount(record) > 0
+      )
+        continue;
       this.clearTimers(record);
       this.rooms.delete(code);
     }

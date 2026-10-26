@@ -9,6 +9,7 @@ function state(overrides: Partial<PublicGameState> = {}): PublicGameState {
     roomCode: "ABC234",
     gameId: "game-1",
     revision: 10,
+    turnSeq: 0,
     phase: "playing",
     you: {
       id: "A",

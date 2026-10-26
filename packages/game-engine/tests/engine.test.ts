@@ -10,6 +10,9 @@ import {
   isRankLegal,
   projectState,
   shuffleDeck,
+  setConnected,
+  finishByForfeit,
+  expireGame,
   type GameState,
   type PlayerState,
 } from "../src/index";
@@ -50,6 +53,7 @@ const playing = (
   roomCode: "ABC234",
   gameId: "game-1",
   revision: 10,
+  turnSeq: 0,
   phase: "playing",
   players: [player("A", handA), player("B", handB)],
   drawPile: [],
@@ -397,5 +401,91 @@ describe("privacy projection", () => {
   it("identifies legal-move availability", () => {
     const state = playing([card(Rank.Three), card(Rank.Two)], [card(Rank.Four)], [card(Rank.Ace)]);
     expect(hasLegalMove(state, "A")).toBe(true);
+  });
+});
+
+describe("turn intent sequence", () => {
+  it("tracks deal/start, leaves partial votes unchanged, and accepts duplicate ready/rematch votes", () => {
+    let state = accepted(addPlayer(createLobby("ABC234"), { id: "A", name: "Ada" }));
+    expect(state.players[0]!.connected).toBe(false);
+    state = accepted(addPlayer(state, { id: "B", name: "Ben" }));
+    expect(state.turnSeq).toBe(0);
+    state = accepted(applyCommand(state, "A", { type: "READY" }));
+    expect(state.turnSeq).toBe(0);
+    expect(applyCommand(state, "A", { type: "READY" })).toEqual({
+      ok: true,
+      state,
+      changed: false,
+    });
+    state = accepted(applyCommand(state, "B", { type: "READY" }));
+    expect(state.turnSeq).toBe(1);
+    state = accepted(
+      applyCommand(state, "A", {
+        type: "SELECT_SETUP_CARDS",
+        cardIds: state.players[0]!.hand.slice(0, 3).map((c) => c.id),
+      }),
+    );
+    expect(state.turnSeq).toBe(1);
+    state = accepted(
+      applyCommand(state, "B", {
+        type: "SELECT_SETUP_CARDS",
+        cardIds: state.players[1]!.hand.slice(0, 3).map((c) => c.id),
+      }),
+    );
+    expect(state.turnSeq).toBe(2);
+    state = finishByForfeit(state, "A");
+    expect(state.turnSeq).toBe(3);
+    state = accepted(applyCommand(state, "A", { type: "REQUEST_REMATCH" }));
+    expect(state.turnSeq).toBe(3);
+    expect(applyCommand(state, "A", { type: "REQUEST_REMATCH" })).toEqual({
+      ok: true,
+      state,
+      changed: false,
+    });
+    state = accepted(applyCommand(state, "B", { type: "REQUEST_REMATCH" }));
+    expect(state.turnSeq).toBe(4);
+    expect(expireGame(state).turnSeq).toBe(5);
+  });
+
+  it("does not advance on draws or presence, and projects the sequence", () => {
+    let state = playing([card(Rank.Three)]);
+    state.drawPile = [card(Rank.Four)];
+    state = accepted(applyCommand(state, "B", { type: "DRAW_CARD" }));
+    expect(state.turnSeq).toBe(0);
+    state = setConnected(state, "B", false);
+    state = setConnected(state, "B", true);
+    expect(state.turnSeq).toBe(0);
+    expect(projectState(state, "A").turnSeq).toBe(0);
+  });
+
+  it("advances once for play, seven resolution, and a winning play", () => {
+    let state = playing([card(Rank.Seven), card(Rank.Three)]);
+    state = accepted(
+      applyCommand(state, "A", { type: "PLAY_CARDS", cardIds: [state.players[0]!.hand[0]!.id] }),
+    );
+    expect(state.turnSeq).toBe(1);
+    state = accepted(
+      applyCommand(state, "A", { type: "CHOOSE_SEVEN_DIRECTION", direction: "lower" }),
+    );
+    expect(state.turnSeq).toBe(2);
+    const win = playing([card(Rank.Ten)]);
+    const finished = accepted(
+      applyCommand(win, "A", { type: "PLAY_CARDS", cardIds: [win.players[0]!.hand[0]!.id] }),
+    );
+    expect(finished.phase).toBe("finished");
+    expect(finished.turnSeq).toBe(1);
+  });
+
+  it("advances for pickup and for legal and illegal hidden selections", () => {
+    const pickup = playing([card(Rank.Three)], undefined, [card(Rank.Ace)]);
+    expect(accepted(applyCommand(pickup, "A", { type: "PICK_UP_PILE" })).turnSeq).toBe(1);
+    for (const rank of [Rank.Three, Rank.Ten]) {
+      const state = playing([], undefined, [card(Rank.Ace)]);
+      state.players[0] = player("A", [], [], [card(rank)]);
+      expect(
+        accepted(applyCommand(state, "A", { type: "SELECT_HIDDEN_CARD", slotId: "A-hidden-0" }))
+          .turnSeq,
+      ).toBe(1);
+    }
   });
 });

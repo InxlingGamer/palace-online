@@ -15,13 +15,13 @@ import {
   Suit,
   rankLabel,
   suitSymbol,
-  type ActionEnvelope,
   type ActionResult,
   type Card as CardType,
   type GameCommand,
   type FieldSlotView,
   type PublicGameState,
 } from "@palace/shared";
+import { createActionSender, shouldAcceptSnapshot } from "./action-sender";
 import { useSound } from "./audio";
 import { ResultOverlay, SevenRestrictionAlert } from "./feedback";
 import { restrictionForViewer } from "./restriction";
@@ -187,12 +187,14 @@ function FieldRow({
   hiddenField,
   owner,
   canSelectHidden = false,
+  pending = false,
   onHidden,
 }: {
   selectedField: FieldSlotView[];
   hiddenField: FieldSlotView[];
   owner: "you" | "opponent";
   canSelectHidden?: boolean;
+  pending?: boolean;
   onHidden?: (slotId: string) => void;
 }) {
   return (
@@ -205,6 +207,7 @@ function FieldRow({
               <CardBack
                 label={owner === "you" ? "Your hidden card" : "Opponent hidden card"}
                 dramatic={canSelectHidden}
+                disabled={pending}
                 {...(canSelectHidden
                   ? {
                       onClick: () => {
@@ -340,7 +343,11 @@ export function App() {
   const [loadingRoom, setLoadingRoom] = useState(Boolean(initialRoom));
   const [selected, setSelected] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
+  const [pending, setPending] = useState(false);
   const [drawBusy, setDrawBusy] = useState(false);
+  const [noticeTone, setNoticeTone] = useState<"info" | "error">("error");
+  const senderRef = useRef<ReturnType<typeof createActionSender> | null>(null);
+  const snapshotRef = useRef<PublicGameState | null>(null);
   const [flights, setFlights] = useState<CardFlight[]>([]);
   const [animateResult, setAnimateResult] = useState(false);
   const [connection, setConnection] = useState<"connected" | "reconnecting" | "offline">(
@@ -351,15 +358,43 @@ export function App() {
   const flightTimerRef = useRef<number | null>(null);
   const resultGameRef = useRef<string | null>(null);
   const sound = useSound();
+  const rejectSoundRef = useRef(sound.play);
+
+  useEffect(() => {
+    rejectSoundRef.current = sound.play;
+  }, [sound.play]);
 
   const connect = useCallback((roomCode: string) => {
+    senderRef.current?.dispose();
+    setPending(false);
+    setDrawBusy(false);
+    senderRef.current = null;
     socketRef.current?.disconnect();
     const socket = io({ auth: { roomCode }, withCredentials: true });
     socketRef.current = socket;
+    setConnection("reconnecting");
     socket.on("connect", () => setConnection("connected"));
-    socket.on("disconnect", () => setConnection("reconnecting"));
+    socket.on("disconnect", (reason) =>
+      setConnection(reason === "io server disconnect" ? "offline" : "reconnecting"),
+    );
+    socket.on("connect_error", (error) => {
+      setConnection("offline");
+      // The server no longer knows this seat (restart, cleanup, or revoked session): stop retrying.
+      if (error.message !== "Invalid room session") return;
+      socket.disconnect();
+      setState(
+        (current) =>
+          current && {
+            ...current,
+            phase: "expired",
+            message: "This table is no longer available.",
+          },
+      );
+    });
     socket.io.on("reconnect_failed", () => setConnection("offline"));
     socket.on("state:snapshot", (snapshot: PublicGameState) => {
+      if (!shouldAcceptSnapshot(snapshotRef.current, snapshot)) return;
+      snapshotRef.current = snapshot;
       setState(snapshot);
       setSelected((current) =>
         current.filter((id) => snapshot.you.hand.some((card) => card.id === id)),
@@ -371,6 +406,7 @@ export function App() {
     if (!initialRoom) return;
     void api<{ state: PublicGameState }>(`/api/rooms/${initialRoom}/reconnect`, { method: "POST" })
       .then(({ state: restored }) => {
+        snapshotRef.current = restored;
         setState(restored);
         connect(initialRoom);
       })
@@ -515,6 +551,7 @@ export function App() {
 
   useEffect(
     () => () => {
+      senderRef.current?.dispose();
       socketRef.current?.disconnect();
       if (flightTimerRef.current) window.clearTimeout(flightTimerRef.current);
     },
@@ -523,25 +560,36 @@ export function App() {
 
   const enter = (entered: PublicGameState) => {
     setNotice("");
+    snapshotRef.current = entered;
     setState(entered);
     connect(entered.roomCode);
   };
 
   const act = async (command: GameCommand): Promise<ActionResult | undefined> => {
-    if (!state || !socketRef.current) return undefined;
+    if (!state || !socketRef.current || senderRef.current?.pending) return undefined;
     sound.unlock();
-    const envelope: ActionEnvelope = {
-      actionId: crypto.randomUUID(),
-      expectedRevision: state.revision,
-      command,
-    };
-    const result = (await socketRef.current.emitWithAck("game:action", envelope)) as ActionResult;
-    if (!result.accepted) {
-      setNotice(result.error?.message ?? "That move was rejected.");
-      sound.play("reject");
-    } else setNotice("");
+    if (!senderRef.current) {
+      senderRef.current = createActionSender(socketRef.current, setPending, (nextNotice) => {
+        setNotice(nextNotice?.message ?? "");
+        setNoticeTone(nextNotice?.tone ?? "info");
+        if (nextNotice?.tone === "error") rejectSoundRef.current("reject");
+      });
+    }
+    setDrawBusy(command.type === "DRAW_CARD");
+    const result = await senderRef.current.send(state, command);
+    setDrawBusy(false);
     return result;
   };
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(""), 4000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
+    if (state?.phase === "finished" || state?.phase === "expired") setNotice("");
+  }, [state?.phase, notice]);
 
   if (loadingRoom)
     return (
@@ -568,6 +616,7 @@ export function App() {
   const sevenRestriction = restrictionForViewer(state);
 
   const toggleCard = (card: CardType) => {
+    if (pending) return;
     if (state.phase === "setup") {
       setSelected((current) =>
         current.includes(card.id)
@@ -588,11 +637,17 @@ export function App() {
 
   const copyInvite = async () => {
     await navigator.clipboard.writeText(`${window.location.origin}/room/${state.roomCode}`);
+    setNoticeTone("info");
     setNotice("Invitation link copied.");
   };
 
   const leaveToLobby = () => {
+    senderRef.current?.dispose();
+    senderRef.current = null;
+    setPending(false);
+    setDrawBusy(false);
     socketRef.current?.disconnect();
+    snapshotRef.current = null;
     window.history.pushState({}, "", "/");
     setState(null);
   };
@@ -629,6 +684,15 @@ export function App() {
         </div>
       </header>
 
+      {connection !== "connected" && state.phase !== "expired" && (
+        <button
+          className="connection-notice"
+          role="status"
+          onClick={() => socketRef.current?.connect()}
+        >
+          {connection === "offline" ? "Offline — tap to retry" : "Reconnecting…"}
+        </button>
+      )}
       <section className="table" aria-label="Palace card table">
         <div className="opponent-zone">
           <div className="player-label">
@@ -645,7 +709,13 @@ export function App() {
               <span
                 className={`presence ${opponent.ready ? "presence--ready" : opponent.connected ? "" : "presence--away"}`}
               >
-                {opponent.ready ? "Ready" : opponent.connected ? "Online" : "Disconnected"}
+                {opponent.ready
+                  ? "Ready"
+                  : opponent.connected
+                    ? "Online"
+                    : state.phase === "lobby"
+                      ? "Connecting…"
+                      : "Disconnected"}
               </span>
             )}
           </div>
@@ -671,11 +741,8 @@ export function App() {
                     ? "Hand is full at five cards"
                     : `Draw one card, ${state.drawCount} remaining`
               }
-              disabled={!canDraw || drawBusy}
-              onClick={() => {
-                setDrawBusy(true);
-                void act({ type: "DRAW_CARD" }).finally(() => setDrawBusy(false));
-              }}
+              disabled={!canDraw || pending}
+              onClick={() => void act({ type: "DRAW_CARD" })}
             />
             <span className="count-badge">{state.drawCount}</span>
             <small>{drawBusy ? "Drawing…" : "Draw pile"}</small>
@@ -715,6 +782,7 @@ export function App() {
             hiddenField={state.you.hiddenField}
             owner="you"
             canSelectHidden={state.you.cardPhase === "hidden-field" && yourTurn}
+            pending={pending}
             onHidden={(slotId) => void act({ type: "SELECT_HIDDEN_CARD", slotId })}
           />
           <div
@@ -749,7 +817,7 @@ export function App() {
         {state.phase === "lobby" && (
           <>
             <div>
-              <b>{opponent ? "Both players connected" : "Waiting for another player"}</b>
+              <b>{opponent ? "Both seats claimed" : "Waiting for another player"}</b>
               <span>
                 {opponent
                   ? "Both players must be ready."
@@ -758,7 +826,7 @@ export function App() {
             </div>
             <button
               className="button button--gold"
-              disabled={!opponent || state.you.ready}
+              disabled={pending || !opponent || state.you.ready}
               onClick={() => void act({ type: "READY" })}
             >
               {state.you.ready ? "Ready ✓" : "I'm ready"}
@@ -775,7 +843,7 @@ export function App() {
             </div>
             <button
               className="button button--gold"
-              disabled={selected.length !== 3}
+              disabled={pending || selected.length !== 3}
               onClick={() => void act({ type: "SELECT_SETUP_CARDS", cardIds: selected })}
             >
               Lock in cards
@@ -797,12 +865,14 @@ export function App() {
             <div className="button-pair">
               <button
                 className="button"
+                disabled={pending}
                 onClick={() => void act({ type: "CHOOSE_SEVEN_DIRECTION", direction: "lower" })}
               >
                 ↓ Lower
               </button>
               <button
                 className="button button--gold"
+                disabled={pending}
                 onClick={() => void act({ type: "CHOOSE_SEVEN_DIRECTION", direction: "higher" })}
               >
                 ↑ Higher
@@ -830,6 +900,7 @@ export function App() {
               {canPickup && (
                 <button
                   className="button button--danger"
+                  disabled={pending}
                   onClick={() => void act({ type: "PICK_UP_PILE" })}
                 >
                   Pick up pile
@@ -837,7 +908,7 @@ export function App() {
               )}
               <button
                 className="button button--gold"
-                disabled={!yourTurn || selected.length === 0}
+                disabled={pending || !yourTurn || selected.length === 0}
                 onClick={() => void act({ type: "PLAY_CARDS", cardIds: selected })}
               >
                 Play {selected.length || "cards"}
@@ -870,13 +941,14 @@ export function App() {
           turnCount={state.stats.turnCount}
           pickupCount={state.stats.pickups[state.you.id] ?? 0}
           rematchRequested={state.you.ready}
+          pending={pending}
           animate={animateResult}
           onLobby={leaveToLobby}
           onRematch={() => void act({ type: "REQUEST_REMATCH" })}
         />
       )}
       {notice && (
-        <button className="toast" onClick={() => setNotice("")} role="alert">
+        <button className={`toast toast--${noticeTone}`} onClick={() => setNotice("")} role="alert">
           {notice}
           <span>×</span>
         </button>

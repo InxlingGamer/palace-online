@@ -23,6 +23,7 @@ interface ResultOverlayProps {
   turnCount: number;
   pickupCount: number;
   rematchRequested: boolean;
+  pending?: boolean;
   animate: boolean;
   onLobby: () => void;
   onRematch: () => void;
@@ -43,6 +44,7 @@ export function ResultOverlay({
   turnCount,
   pickupCount,
   rematchRequested,
+  pending = false,
   animate,
   onLobby,
   onRematch,
@@ -106,7 +108,7 @@ export function ResultOverlay({
           </button>
           <button
             className="button button--gold"
-            disabled={rematchRequested}
+            disabled={pending || rematchRequested}
             onClick={onRematch}
             type="button"
           >

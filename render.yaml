@@ -32,7 +32,7 @@ services:
       - key: TRUST_PROXY
         value: "true"
       - key: RECONNECT_GRACE_MS
-        value: "120000"
+        value: "600000"
       - key: ROOM_IDLE_TTL_MS
         value: "1800000"
       - key: ROOM_CREATE_LIMIT

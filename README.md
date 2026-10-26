@@ -95,7 +95,7 @@ E2E_BASE_URL=https://palace-online-inxlinggamer.onrender.com pnpm test:e2e
 | `PORT`                  | Node HTTP/WebSocket port                         | `3001`                  |
 | `PUBLIC_APP_URL`        | Canonical invitation origin                      | `http://localhost:5173` |
 | `ALLOWED_ORIGINS`       | Comma-separated browser origins                  | local dev/test origins  |
-| `RECONNECT_GRACE_MS`    | Time reserved for a disconnected player          | `120000`                |
+| `RECONNECT_GRACE_MS`    | Time reserved for a disconnected player          | `600000`                |
 | `ROOM_IDLE_TTL_MS`      | Inactive room cleanup threshold                  | `1800000`               |
 | `SESSION_COOKIE_SECURE` | Require HTTPS for the player cookie              | `false`                 |
 | `TRUST_PROXY`           | Trust one hosting proxy hop                      | `false`                 |

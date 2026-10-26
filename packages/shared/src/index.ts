@@ -6,8 +6,11 @@ export const RULES = {
   setupHandSize: 6,
   setupSelectionSize: 3,
   hiddenFieldSize: 3,
-  reconnectGraceMs: 120_000,
+  reconnectGraceMs: 600_000,
   actionCacheSize: 256,
+  actionBurstCapacity: 20,
+  actionRefillPerSecond: 10,
+  maxSocketsPerSession: 5,
 } as const;
 
 export enum Suit {
@@ -82,6 +85,7 @@ export interface PublicGameState {
   roomCode: string;
   gameId: string | null;
   revision: number;
+  turnSeq: number;
   phase: GamePhase;
   you: PublicPlayer & {
     hand: Card[];
@@ -117,6 +121,7 @@ export type GameCommand =
 export interface ActionEnvelope {
   actionId: string;
   expectedRevision: number;
+  expectedTurn?: number | undefined;
   command: GameCommand;
 }
 
@@ -163,6 +168,7 @@ const commandSchema = z.discriminatedUnion("type", [
 export const actionEnvelopeSchema = z.object({
   actionId: z.uuid(),
   expectedRevision: z.number().int().nonnegative(),
+  expectedTurn: z.number().int().nonnegative().optional(),
   command: commandSchema,
 });
 

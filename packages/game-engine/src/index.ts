@@ -38,6 +38,7 @@ export interface GameState {
   roomCode: string;
   gameId: string | null;
   revision: number;
+  turnSeq: number;
   phase: GamePhase;
   players: PlayerState[];
   drawPile: Card[];
@@ -53,7 +54,8 @@ export interface GameState {
 }
 
 export type EngineResult =
-  { ok: true; state: GameState } | { ok: false; code: ErrorCode; message: string };
+  | { ok: true; state: GameState; changed?: boolean }
+  | { ok: false; code: ErrorCode; message: string };
 
 const rankValue = new Map<Rank, number>(NORMAL_RANKS.map((rank, index) => [rank, index]));
 
@@ -83,6 +85,7 @@ export function createLobby(roomCode: string): GameState {
     roomCode,
     gameId: null,
     revision: 0,
+    turnSeq: 0,
     phase: "lobby",
     players: [],
     drawPile: [],
@@ -109,7 +112,7 @@ export function addPlayer(
   const next = cloneState(state);
   next.players.push({
     ...player,
-    connected: true,
+    connected: false,
     ready: false,
     setupComplete: false,
     hand: [],
@@ -118,7 +121,7 @@ export function addPlayer(
   });
   next.stats.pickups[player.id] = 0;
   next.revision += 1;
-  next.message = next.players.length === 2 ? "Both players connected." : next.message;
+  next.message = next.players.length === 2 ? "Both seats claimed." : next.message;
   return { ok: true, state: next };
 }
 
@@ -454,6 +457,13 @@ export function applyCommand(
   const player = playerOf(state, playerId);
   if (!player) return fail("NOT_A_MEMBER", "You are not a member of this room.");
 
+  if (
+    player.ready &&
+    ((command.type === "READY" && state.phase === "lobby") ||
+      (command.type === "REQUEST_REMATCH" && state.phase === "finished"))
+  )
+    return { ok: true, state: current, changed: false };
+
   let error: EngineResult | null = null;
   if (command.type === "LEAVE_ROOM") return removeLobbyPlayer(state, playerId);
   if (command.type === "READY") error = applyReady(state, player, random);
@@ -478,6 +488,13 @@ export function applyCommand(
   }
   if (error) return error;
   state.revision += 1;
+  if (
+    state.phase !== current.phase ||
+    ["PLAY_CARDS", "PICK_UP_PILE", "CHOOSE_SEVEN_DIRECTION", "SELECT_HIDDEN_CARD"].includes(
+      command.type,
+    )
+  )
+    state.turnSeq += 1;
   return { ok: true, state };
 }
 
@@ -507,6 +524,7 @@ export function projectState(state: GameState, viewerId: string): PublicGameStat
     roomCode: state.roomCode,
     gameId: state.gameId,
     revision: state.revision,
+    turnSeq: state.turnSeq,
     phase: state.phase,
     you: {
       ...playerSummary(viewer),
@@ -551,6 +569,7 @@ export function finishByForfeit(state: GameState, disconnectedPlayerId: string):
   next.pendingSevenChoiceFor = null;
   next.restriction = null;
   next.revision += 1;
+  next.turnSeq += 1;
   next.message = winner ? `${winner.name} wins by forfeit.` : "This room expired.";
   return next;
 }
@@ -564,6 +583,7 @@ export function expireGame(state: GameState): GameState {
   next.pendingSevenChoiceFor = null;
   next.restriction = null;
   next.revision += 1;
+  next.turnSeq += 1;
   next.message = "This room expired before the game could resume.";
   return next;
 }
