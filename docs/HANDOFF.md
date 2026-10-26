@@ -2,7 +2,7 @@
 
 Living status document for the 2026 audit and overhaul. Keep it current at every checkpoint so any new chat can pick up from here. Read this first, then `README.md`, `docs/ARCHITECTURE.md`, and `docs/RULES.md`.
 
-_Last updated: 2026-10-26 — Milestone 2 done; [PR #1](https://github.com/InxlingGamer/palace-online/pull/1) open and awaiting the owner's merge approval. Next: Milestone 3._
+_Last updated: 2026-10-26 — Milestone 3 implemented, reviewed and verified on `overhaul/m3-requested-rules`; [PR #2](https://github.com/InxlingGamer/palace-online/pull/2) awaits the owner's merge approval (after PR #1). Next: Milestone 4 mockup._
 
 ## How to resume
 
@@ -33,7 +33,9 @@ _Last updated: 2026-10-26 — Milestone 2 done; [PR #1](https://github.com/Inxli
 - Milestone 1 (audit) is complete and approved. Milestone 2 is implemented (Codex), reviewed and amended (Claude), committed, and pushed.
 - Verification for M2: 65/65 Vitest tests (3 consecutive runs), 4/4 typechecks, ESLint, Prettier; Playwright 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape) including a new simultaneous-draw test; scenario suites 9/9. The original reproduction now accepts simultaneous draws, a play racing an opponent draw, and double draws.
 - Baseline before M2: 43 unit/integration tests.
-- Next step: Milestone 3, described below. Branch `overhaul/m3-requested-rules` from `overhaul/m2-multiplayer-reliability` (M3 builds on `turnSeq`); if PR #1 has been merged by then, branch from `main` instead. Open the M3 PR against whichever base was used.
+- Milestone 3 branch: `overhaul/m3-requested-rules`, created from `overhaul/m2-multiplayer-reliability` @ `cf4cfa3` (PR #1 was not merged yet). Open the M3 PR against `overhaul/m2-multiplayer-reliability`; if PR #1 merges first, retarget it to `main`.
+- M3 status (2026-10-26): implemented by Codex, reviewed and amended by Claude, committed and pushed; [PR #2](https://github.com/InxlingGamer/palace-online/pull/2) opened against `overhaul/m2-multiplayer-reliability` (retarget to `main` if PR #1 merges first). Merge order: PR #1, then M3. Do not merge without the owner's explicit approval.
+- Verification for M3: 75/75 Vitest tests (3 consecutive runs; baseline 65), 4/4 typechecks, ESLint, Prettier, production build; Playwright main suite 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape); scenario suites 18/18 across 5 scenarios (desktop Chromium, iPhone portrait, iPhone landscape), including off-turn pickup and the final-card hold with and without reduced motion. Screenshots reviewed in `output/audit/shots/m3/` (local only).
 
 ## Next up: Milestone 3 plan
 
@@ -52,6 +54,18 @@ Both changes were approved by the owner on 2026-10-26 (see **Decisions**). Ship 
    - Client: when the phase becomes `finished` with `resultReason === "finished"`, render `lastPlay.cards` on the play pile area for ~1.5 s (respect `prefers-reduced-motion` with a shorter hold), then show `ResultOverlay`. The win sound plays when the overlay appears. Forfeit results skip the hold.
    - Rejoining a finished room shows the overlay immediately (the existing `sessionStorage` "already presented" key covers this).
 
+### M3 implementation decisions (Claude, 2026-10-26)
+
+- Off-turn pickups do not increment `stats.turnCount` (they are not turns); they do increment pickups and `turnSeq`.
+- `LEGAL_MOVE_AVAILABLE` is removed from `ErrorCode`.
+- `lastPlay` is set in `playCommittedCards` before any burn (covers hand plays, legal hidden reveals, burns, a winning final 7) and on an illegal hidden reveal; cleared on deal/rematch; untouched by pickup, forfeit, expiry.
+- Client: `canPickUpPile(state)` helper in `apps/client/src/pickup.ts` (playing, non-empty pile, no pending seven). Dock copy on your turn with no legal card: "No legal card" / "Pick up the pile."
+- Final-card hold: 1500 ms (700 ms with reduced motion), rendered in `.play-stack` as `[data-final-play="true"]`; the hold timer is kept in a ref keyed by `gameId` so unrelated snapshots don't restart it; win/lose sound plays when the overlay appears.
+- New browser scenarios: `pickup-anytime` and `final-play` (added to `test:e2e:scenarios`).
+- Claude review amendments: the `.final-play` wrapper fills the play stack (it was a zero-size box); the "Final card" caption sits above the pile on a dark pill (it overlapped the field row on desktop and iPhone landscape); the status banner says "Game over" when finished (it said "<opponent>'s turn", now visible during the hold).
+- Codex also made the scenario spec's manual browser contexts inherit the project's device profile. Before M3 the scenario tests on the iPhone projects ran with desktop contexts.
+- Known minor: on a rejoin to an already-presented finished game, the final card may render for one frame before the overlay mounts. Not perceptible in testing.
+
 ## After Milestone 3
 
 - **M4 redesign:** classic green felt. First produce a mockup of the table (desktop and iPhone portrait) for owner approval before implementation. Keep the join flow working. Cards: cream faces with proper pip layouts and original court-card treatment (no copyrighted art); one card-back design. Clear turn indicator, legal-card indication, last-move indicator, lobby with an invite/copy button, sounds on by default, reduced-motion support. Gate hover styles with `@media (hover: hover)`.
@@ -65,7 +79,7 @@ Both changes were approved by the owner on 2026-10-26 (see **Decisions**). Ship 
 | --- | ------------------------------------------------------------------- | ------------------------------ |
 | 1   | Audit and prioritized findings                                      | done (approved 2026-10-26)     |
 | 2   | Multiplayer reliability, server crash fixes, lifecycle timers       | done on branch; PR awaiting OK |
-| 3   | Requested rules: pick up anytime; show final card before result     | not started (answers received) |
+| 3   | Requested rules: pick up anytime; show final card before result     | done on branch; PR awaiting OK |
 | 4   | Visual redesign — classic green felt (owner chose a full redesign)  | not started                    |
 | 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | not started                    |
 | 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | approved, not started          |
@@ -83,6 +97,9 @@ Both changes were approved by the owner on 2026-10-26 (see **Decisions**). Ship 
 | M2-6 | Client: action sender module, single in-flight action, ack timeout + resend same actionId, neutral STALE notice, auto-dismiss toasts, visible reconnect indicator, snapshot ordering guard                                                  | P1  | done   | Codex  | M2-1    | client                     | yes      |
 | M2-7 | Docs: ARCHITECTURE and RULES updates                                                                                                                                                                                                        | P2  | done   | Codex  | M2-1..6 | docs                       | yes      |
 | M2-8 | Claude review, e2e (Chromium + WebKit iPhone), multi-client repro; Claude fixes: flaky sync test, idle cleanup skips connected rooms, client stops retrying a room the server no longer knows (shows Room expired), 10-minute forfeit grace | —   | done   | Claude | M2-1..7 | —                          | yes      |
+| M3-1 | Pick up anytime: engine (off-turn pickup, no turn change, no turnCount), client button for both players, dock copy, tests                                                                                                                   | P1  | done   | Codex  | M2-1    | engine, shared, client     | yes      |
+| M3-2 | Final-card reveal: `lastPlay` in state/projection, 1.5 s hold (0.7 s reduced motion) before results, tests                                                                                                                                  | P1  | done   | Codex  | —       | engine, shared, client     | yes      |
+| M3-3 | Claude review, e2e + screenshots (desktop, iPhone portrait/landscape); fixes: final-play box, caption placement, "Game over" banner                                                                                                         | —   | done   | Claude | M3-1..2 | client                     | yes      |
 
 ## Key audit findings (summary)
 

@@ -10,8 +10,16 @@ interface Players {
 }
 
 async function createReadyGame(browser: Browser): Promise<Players> {
-  const contextA = await browser.newContext();
-  const contextB = await browser.newContext();
+  const { viewport, isMobile, hasTouch, deviceScaleFactor, userAgent } = test.info().project.use;
+  const options = {
+    ...(viewport !== undefined ? { viewport } : {}),
+    ...(isMobile !== undefined ? { isMobile } : {}),
+    ...(hasTouch !== undefined ? { hasTouch } : {}),
+    ...(deviceScaleFactor !== undefined ? { deviceScaleFactor } : {}),
+    ...(userAgent !== undefined ? { userAgent } : {}),
+  };
+  const contextA = await browser.newContext(options);
+  const contextB = await browser.newContext(options);
   const playerA = await contextA.newPage();
   await playerA.goto("/");
   await playerA.getByLabel("Display name").fill("Ada");
@@ -46,6 +54,16 @@ async function createReadyGame(browser: Browser): Promise<Players> {
     await expect(playerA.locator('.play-stack [data-card-rank="A"]')).toBeVisible();
     await expect(playerA.locator(".hand [data-card-id]")).toHaveCount(0);
     await expect(playerB.locator(".opponent-hand .card--back")).toHaveCount(0);
+  } else if (scenario === "pickup-anytime") {
+    await expect(playerA.locator('.play-stack [data-card-rank="8"]')).toBeVisible();
+    for (const page of [playerA, playerB])
+      await expect(page.locator(".hand [data-card-id]")).toHaveCount(2);
+    await expect(playerA.locator('.hand [data-card-rank="9"]')).toBeVisible();
+    await expect(playerB.locator('.hand [data-card-rank="Q"]')).toBeVisible();
+  } else if (scenario === "final-play") {
+    await expect(playerA.locator(".hand [data-card-id]")).toHaveCount(1);
+    await expect(playerA.locator('.hand [data-card-rank="10"]')).toBeVisible();
+    await expect(playerB.locator('.play-stack [data-card-rank="5"]')).toBeVisible();
   } else if (scenario === "finished-result") {
     await expect(playerA.getByRole("dialog")).toBeVisible();
     await expect(playerB.getByRole("dialog")).toBeVisible();
@@ -160,3 +178,67 @@ test("winner and loser receive accessible full-screen results", async ({ browser
   await players.contextA.close();
   await players.contextB.close();
 });
+
+test("either player can pick up while Ada keeps the turn", async ({ browser }) => {
+  test.skip(scenario !== "pickup-anytime", "Different deterministic scenario");
+  const players = await createReadyGame(browser);
+  try {
+    for (const page of [players.playerA, players.playerB])
+      await expect(page.getByRole("button", { name: "Pick up pile" })).toBeEnabled();
+    await players.playerB.getByRole("button", { name: "Pick up pile" }).click();
+    await expect(players.playerB.locator(".hand [data-card-id]")).toHaveCount(3);
+    await expect(players.playerB.locator('.hand [data-card-rank="8"]')).toBeVisible();
+    await expect(players.playerA.locator(".status-banner")).toContainText("Your turn");
+    for (const page of [players.playerA, players.playerB]) {
+      await expect(page.locator(".play-stack .pile-empty")).toBeVisible();
+      await expectNoViewportOverflow(page);
+    }
+  } finally {
+    await players.contextA.close();
+    await players.contextB.close();
+  }
+});
+
+for (const reducedMotion of [false, true]) {
+  test(`final burned card precedes results${reducedMotion ? " with reduced motion" : ""}`, async ({
+    browser,
+  }) => {
+    test.skip(scenario !== "final-play", "Different deterministic scenario");
+    const players = await createReadyGame(browser);
+    const pages = [players.playerA, players.playerB];
+    try {
+      for (const page of pages)
+        await page.emulateMedia({ reducedMotion: reducedMotion ? "reduce" : "no-preference" });
+      await players.playerA.locator('.hand [data-card-rank="10"]').click();
+      await players.playerA.getByRole("button", { name: "Play 1" }).click();
+      await Promise.all(
+        pages.map(async (page) => {
+          await expect(
+            page.locator('[data-final-play="true"] [data-card-rank="10"]'),
+          ).toBeVisible();
+          await expect(page.getByRole("dialog")).toHaveCount(0);
+          await expectNoViewportOverflow(page);
+        }),
+      );
+      if (!reducedMotion) {
+        await players.playerA.waitForTimeout(800);
+        for (const page of pages) await expect(page.getByRole("dialog")).toHaveCount(0);
+      }
+      await Promise.all(
+        pages.map((page) =>
+          expect(page.getByRole("dialog")).toBeVisible({ timeout: reducedMotion ? 900 : 3000 }),
+        ),
+      );
+      for (const page of pages) {
+        // Mobile-emulated WebKit on Linux CI can crash reloading mid-confetti; the rejoin check is motion-independent.
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.reload();
+        await expect(page.getByRole("dialog")).toBeVisible();
+        await expect(page.locator('[data-final-play="true"]')).toHaveCount(0);
+      }
+    } finally {
+      await players.contextA.close();
+      await players.contextB.close();
+    }
+  });
+}

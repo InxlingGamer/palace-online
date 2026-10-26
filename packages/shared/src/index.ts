@@ -97,6 +97,7 @@ export interface PublicGameState {
   opponentHiddenField: FieldSlotView[];
   drawCount: number;
   playPile: Card[];
+  lastPlay: { playerId: string; cards: Card[] } | null;
   burnedCount: number;
   currentTurnPlayerId: string | null;
   pendingSevenChoiceFor: string | null;
@@ -139,7 +140,6 @@ export type ErrorCode =
   | "ILLEGAL_RANK"
   | "HAND_FULL"
   | "DRAW_PILE_EMPTY"
-  | "LEGAL_MOVE_AVAILABLE"
   | "SEVEN_CHOICE_REQUIRED"
   | "RATE_LIMITED";
 

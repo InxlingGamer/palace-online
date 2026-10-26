@@ -1974,3 +1974,23 @@ h1 em {
   white-space: nowrap;
   cursor: pointer;
 }
+
+.final-play,
+.final-play > div {
+  position: absolute;
+  inset: 0;
+}
+
+.final-play > small {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  z-index: 2;
+  transform: translateX(-50%);
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgb(12 20 34 / 88%);
+  color: #fff0b2;
+  font-weight: 900;
+  white-space: nowrap;
+}
