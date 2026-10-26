@@ -2,7 +2,7 @@
 
 Living status document for the 2026 audit and overhaul. Keep it current at every checkpoint so any new chat can pick up from here. Read this first, then `README.md`, `docs/ARCHITECTURE.md`, and `docs/RULES.md`.
 
-_Last updated: 2026-10-26 — Milestone 3 implemented, reviewed and verified on `overhaul/m3-requested-rules`; [PR #2](https://github.com/InxlingGamer/palace-online/pull/2) awaits the owner's merge approval (after PR #1). Next: Milestone 4 mockup._
+_Last updated: 2026-10-26 — Milestones 2 and 3 are merged and **live in production** (`main` @ `f3fafc2`, deployed 22:12 UTC). Next: Milestone 4 mockup (classic green felt) for the owner's approval._
 
 ## How to resume
 
@@ -28,16 +28,16 @@ _Last updated: 2026-10-26 — Milestone 3 implemented, reviewed and verified on 
 
 ## Current state
 
-- Active branch: `overhaul/m2-multiplayer-reliability` (from `main` @ `eb15690`), pushed to origin.
-- Open PR: [InxlingGamer/palace-online#1](https://github.com/InxlingGamer/palace-online/pull/1) — "Fix false network mismatch errors and harden the multiplayer server". Not merged. **Merging deploys to production**; only merge when the owner explicitly says so, and preferably when nobody is mid-game (games are in memory).
-- Milestone 1 (audit) is complete and approved. Milestone 2 is implemented (Codex), reviewed and amended (Claude), committed, and pushed.
+- Active branch: `main` (no open PRs). Start Milestone 4 on a new `overhaul/m4-felt-redesign` branch from `main`.
+- Merged 2026-10-26 with the owner's explicit approval (merge commits, not squash): PR #1 (M2) → `edb6dbb`; PR #2 (M3) → `1ac0278`; [PR #3](https://github.com/InxlingGamer/palace-online/pull/3) (CI test fix) → `f3fafc2`. Render deployed M2 at 20:58 UTC and M3 at 22:12 UTC; `/healthz` OK; the live client bundle contains the M3 code; the main browser suite passed 6/6 against production (desktop Chromium, iPhone portrait).
+- PR #3 context: `main` CI for the M3 merge failed twice because `page.reload()` crashed the page ("Page crashed") in iPhone-emulated WebKit on GitHub's Linux runners. It's intermittent, never reproduced on Windows, and reduced motion didn't prevent it. The final-play rejoin reload check now runs only on desktop Chromium; the final-card hold is still tested on every device. That blocked the M3 deploy until PR #3 merged.
+- **GitHub runner slowness, 2026-10-26:** the `browser` job's `playwright install --with-deps` step took 10–46 min several times because `azure.archive.ubuntu.com` was crawling (packages timing out and falling back to `archive.ubuntu.com`). It isn't frozen: cancelling restarts the same slow download, so prefer waiting. One run also timed out a long-standing M2 test on a slow runner. Suggested follow-up (not done): cache Playwright browsers and/or add `timeout-minutes` to the install step so a real hang fails fast.
+- Milestones 1–3 are complete and deployed.
 - Verification for M2: 65/65 Vitest tests (3 consecutive runs), 4/4 typechecks, ESLint, Prettier; Playwright 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape) including a new simultaneous-draw test; scenario suites 9/9. The original reproduction now accepts simultaneous draws, a play racing an opponent draw, and double draws.
 - Baseline before M2: 43 unit/integration tests.
-- Milestone 3 branch: `overhaul/m3-requested-rules`, created from `overhaul/m2-multiplayer-reliability` @ `cf4cfa3` (PR #1 was not merged yet). Open the M3 PR against `overhaul/m2-multiplayer-reliability`; if PR #1 merges first, retarget it to `main`.
-- M3 status (2026-10-26): implemented by Codex, reviewed and amended by Claude, committed and pushed; [PR #2](https://github.com/InxlingGamer/palace-online/pull/2) opened against `overhaul/m2-multiplayer-reliability` (retarget to `main` if PR #1 merges first). Merge order: PR #1, then M3. Do not merge without the owner's explicit approval.
 - Verification for M3: 75/75 Vitest tests (3 consecutive runs; baseline 65), 4/4 typechecks, ESLint, Prettier, production build; Playwright main suite 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape); scenario suites 18/18 across 5 scenarios (desktop Chromium, iPhone portrait, iPhone landscape), including off-turn pickup and the final-card hold with and without reduced motion. Screenshots reviewed in `output/audit/shots/m3/` (local only).
 
-## Next up: Milestone 3 plan
+## Milestone 3 plan (done)
 
 Both changes were approved by the owner on 2026-10-26 (see **Decisions**). Ship them together with engine tests, server integration tests, and a browser test, then update `docs/RULES.md`.
 
@@ -75,15 +75,15 @@ Both changes were approved by the owner on 2026-10-26 (see **Decisions**). Ship 
 
 ## Milestones
 
-| #   | Milestone                                                           | Status                         |
-| --- | ------------------------------------------------------------------- | ------------------------------ |
-| 1   | Audit and prioritized findings                                      | done (approved 2026-10-26)     |
-| 2   | Multiplayer reliability, server crash fixes, lifecycle timers       | done on branch; PR awaiting OK |
-| 3   | Requested rules: pick up anytime; show final card before result     | done on branch; PR awaiting OK |
-| 4   | Visual redesign — classic green felt (owner chose a full redesign)  | not started                    |
-| 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | not started                    |
-| 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | approved, not started          |
-| 7   | Regression testing and final QA                                     | not started                    |
+| #   | Milestone                                                           | Status                     |
+| --- | ------------------------------------------------------------------- | -------------------------- |
+| 1   | Audit and prioritized findings                                      | done (approved 2026-10-26) |
+| 2   | Multiplayer reliability, server crash fixes, lifecycle timers       | done; merged and deployed  |
+| 3   | Requested rules: pick up anytime; show final card before result     | done; merged and deployed  |
+| 4   | Visual redesign — classic green felt (owner chose a full redesign)  | not started                |
+| 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | not started                |
+| 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | approved, not started      |
+| 7   | Regression testing and final QA                                     | not started                |
 
 ## Task tracker
 
