@@ -2,7 +2,7 @@
 
 Living status document for the 2026 audit and overhaul. Keep it current at every checkpoint so any new chat can pick up from here. Read this first, then `README.md`, `docs/ARCHITECTURE.md`, and `docs/RULES.md`.
 
-_Last updated: 2026-10-26 — Milestones 2 and 3 are merged and **live in production** (`main` @ `f3fafc2`, deployed 22:12 UTC). Next: Milestone 4 mockup (classic green felt) for the owner's approval._
+_Last updated: 2026-10-26 — Milestones 2 and 3 are live in production (`main` @ `54bdd98`). Milestone 4 mockup published and **awaiting the owner's approval**; no M4 code yet._
 
 ## How to resume
 
@@ -28,7 +28,8 @@ _Last updated: 2026-10-26 — Milestones 2 and 3 are merged and **live in produc
 
 ## Current state
 
-- Active branch: `main` (no open PRs). Start Milestone 4 on a new `overhaul/m4-felt-redesign` branch from `main`.
+- Active branch: `overhaul/m4-felt-redesign` (from `main` @ `54bdd98`; docs only so far). No open PRs.
+- M4 mockup (2026-10-26): [Palace felt table mockup](https://claude.ai/artifact/QKGHDTgYMXbDyFfBcMiZPM), a private design canvas (only the owner can open it unless shared). Frames: desktop on your turn (1440×900, with a `turn` tweak); iPhone 15 Plus on your turn and on Ben's turn, drawn at the Safari viewport 430×739; a card sheet (A–10 pips, J/Q/K, back, hand states); the card component. Do not start implementation until the owner approves or requests changes.
 - Merged 2026-10-26 with the owner's explicit approval (merge commits, not squash): PR #1 (M2) → `edb6dbb`; PR #2 (M3) → `1ac0278`; [PR #3](https://github.com/InxlingGamer/palace-online/pull/3) (CI test fix) → `f3fafc2`. Render deployed M2 at 20:58 UTC and M3 at 22:12 UTC; `/healthz` OK; the live client bundle contains the M3 code; the main browser suite passed 6/6 against production (desktop Chromium, iPhone portrait).
 - PR #3 context: `main` CI for the M3 merge failed twice because `page.reload()` crashed the page ("Page crashed") in iPhone-emulated WebKit on GitHub's Linux runners. It's intermittent, never reproduced on Windows, and reduced motion didn't prevent it. The final-play rejoin reload check now runs only on desktop Chromium; the final-card hold is still tested on every device. That blocked the M3 deploy until PR #3 merged.
 - **GitHub runner slowness, 2026-10-26:** the `browser` job's `playwright install --with-deps` step took 10–46 min several times because `azure.archive.ubuntu.com` was crawling (packages timing out and falling back to `archive.ubuntu.com`). It isn't frozen: cancelling restarts the same slow download, so prefer waiting. One run also timed out a long-standing M2 test on a slow runner. Suggested follow-up (not done): cache Playwright browsers and/or add `timeout-minutes` to the install step so a real hang fails fast.
@@ -66,6 +67,16 @@ Both changes were approved by the owner on 2026-10-26 (see **Decisions**). Ship 
 - Codex also made the scenario spec's manual browser contexts inherit the project's device profile. Before M3 the scenario tests on the iPhone projects ran with desktop contexts.
 - Known minor: on a rejoin to an already-presented finished game, the final card may render for one frame before the overlay mounts. Not perceptible in testing.
 
+### M4 mockup design decisions (Claude, 2026-10-26; pending owner approval)
+
+- Table: green felt (`#1B6141` with a soft centre light) inside a dark walnut rail (`#2A1910`) on desktop; on iPhone the rail becomes the top bar. Accent gold `#E3B54A` is used only for turn, selection and the primary action.
+- Type: Source Serif 4 (wordmark, card indices, counts) and Manrope (UI), both from Google Fonts at no cost.
+- Cards: cream face `#FBF6EA`, red `#B42318`, black `#1B1B1D`; suits drawn as SVG paths, not Unicode (iOS can render ♥/♦ as emoji); standard pip layouts; court cards are an original framed monogram (letter, crown for K/Q, suit) with no traditional court art; one burgundy lattice back with a "P" medallion.
+- Turn indicator: the active player's seat plate gets a gold ring, a tint and a "YOUR TURN"/"BEN'S TURN" badge. Last move: a gold-outlined tag above the pile ("Ben played a pair of 8s"), with the last play fanned on top of the pile. Requirement line under the pile ("Play 8 or higher, or a 2, 7 or 10").
+- Legal cards: unplayable cards are dimmed (lightness, not hue) on your turn only; selected cards lift with a gold ring. Off-turn, the dock offers "Pick up pile" (M3 rule) and a disabled Play.
+- iPhone hand: one sideways-scrolling row (M5 decision), cards 70 px wide overlapping to a 46 px strip with the corner index visible, a right-edge fade and chevron; 44 px minimum touch targets in the header and dock.
+- Not in the mockup yet: the lobby/join screen with invite button, the seven-direction prompt and the result overlay. Restyle them to match during implementation unless the owner wants them mocked first.
+
 ## After Milestone 3
 
 - **M4 redesign:** classic green felt. First produce a mockup of the table (desktop and iPhone portrait) for owner approval before implementation. Keep the join flow working. Cards: cream faces with proper pip layouts and original court-card treatment (no copyrighted art); one card-back design. Clear turn indicator, legal-card indication, last-move indicator, lobby with an invite/copy button, sounds on by default, reduced-motion support. Gate hover styles with `@media (hover: hover)`.
@@ -80,7 +91,7 @@ Both changes were approved by the owner on 2026-10-26 (see **Decisions**). Ship 
 | 1   | Audit and prioritized findings                                      | done (approved 2026-10-26) |
 | 2   | Multiplayer reliability, server crash fixes, lifecycle timers       | done; merged and deployed  |
 | 3   | Requested rules: pick up anytime; show final card before result     | done; merged and deployed  |
-| 4   | Visual redesign — classic green felt (owner chose a full redesign)  | not started                |
+| 4   | Visual redesign — classic green felt (owner chose a full redesign)  | mockup awaiting approval   |
 | 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | not started                |
 | 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | approved, not started      |
 | 7   | Regression testing and final QA                                     | not started                |
@@ -125,7 +136,7 @@ Both changes were approved by the owner on 2026-10-26 (see **Decisions**). Ship 
 
 ## Open questions for the owner
 
-None right now.
+- Approve the M4 felt table mockup, or list changes: https://claude.ai/artifact/QKGHDTgYMXbDyFfBcMiZPM
 
 ## Verification status and unverified areas
 
