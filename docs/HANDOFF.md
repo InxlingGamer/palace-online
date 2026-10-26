@@ -2,7 +2,7 @@
 
 Living status document for the 2026 audit and overhaul. Keep it current at every checkpoint so any new chat can pick up from here. Read this first, then `README.md`, `docs/ARCHITECTURE.md`, and `docs/RULES.md`.
 
-_Last updated: 2026-10-26 — Milestone 3 implemented, reviewed and verified on `overhaul/m3-requested-rules`; its PR awaits the owner's merge approval (after PR #1). Next: Milestone 4 mockup._
+_Last updated: 2026-10-26 — Milestone 3 implemented, reviewed and verified on `overhaul/m3-requested-rules`; [PR #2](https://github.com/InxlingGamer/palace-online/pull/2) awaits the owner's merge approval (after PR #1). Next: Milestone 4 mockup._
 
 ## How to resume
 
@@ -34,7 +34,7 @@ _Last updated: 2026-10-26 — Milestone 3 implemented, reviewed and verified on 
 - Verification for M2: 65/65 Vitest tests (3 consecutive runs), 4/4 typechecks, ESLint, Prettier; Playwright 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape) including a new simultaneous-draw test; scenario suites 9/9. The original reproduction now accepts simultaneous draws, a play racing an opponent draw, and double draws.
 - Baseline before M2: 43 unit/integration tests.
 - Milestone 3 branch: `overhaul/m3-requested-rules`, created from `overhaul/m2-multiplayer-reliability` @ `cf4cfa3` (PR #1 was not merged yet). Open the M3 PR against `overhaul/m2-multiplayer-reliability`; if PR #1 merges first, retarget it to `main`.
-- M3 status (2026-10-26): implemented by Codex, reviewed and amended by Claude, committed and pushed; PR opened against `overhaul/m2-multiplayer-reliability` (retarget to `main` if PR #1 merges first). Merge order: PR #1, then M3. Do not merge without the owner's explicit approval.
+- M3 status (2026-10-26): implemented by Codex, reviewed and amended by Claude, committed and pushed; [PR #2](https://github.com/InxlingGamer/palace-online/pull/2) opened against `overhaul/m2-multiplayer-reliability` (retarget to `main` if PR #1 merges first). Merge order: PR #1, then M3. Do not merge without the owner's explicit approval.
 - Verification for M3: 75/75 Vitest tests (3 consecutive runs; baseline 65), 4/4 typechecks, ESLint, Prettier, production build; Playwright main suite 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape); scenario suites 18/18 across 5 scenarios (desktop Chromium, iPhone portrait, iPhone landscape), including off-turn pickup and the final-card hold with and without reduced motion. Screenshots reviewed in `output/audit/shots/m3/` (local only).
 
 ## Next up: Milestone 3 plan
