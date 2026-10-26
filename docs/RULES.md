@@ -14,7 +14,7 @@ To choose the starter, each hand is filtered to remove twos and sorted from low 
 
 A move is one card or multiple cards of exactly one rank. A normal rank must equal or exceed the top rank. Power cards are always legal. An empty or reset pile accepts any rank.
 
-After a successful play, that player draws automatically only when holding fewer than three cards, and only until holding three while the draw pile has cards. During active play, either player may manually draw one card at any time, including outside their turn or while a seven choice is pending; drawing does not change the turn. Manual drawing is unavailable when the hand already contains five or more cards or when the draw pile is empty. A pile pickup may leave a hand above five; excess cards are never discarded. If there is no legal hand card and the pile is nonempty, the player must take the entire pile and end their turn.
+After a successful play, that player draws automatically only when holding fewer than three cards, and only until holding three while the draw pile has cards. During active play, either player may manually draw one card at any time, including outside their turn or while a seven choice is pending; drawing does not change the turn. Manual drawing is unavailable when the hand already contains five or more cards or when the draw pile is empty. A pile pickup may leave a hand above five; excess cards are never discarded. Either player may pick up the whole pile at any time during active play while it is non-empty, except while a seven direction choice is pending. On your turn, picking up ends your turn; off-turn, it does not change whose turn it is. Picking up consumes a seven restriction targeting you.
 
 ## Power cards and precedence
 
@@ -33,6 +33,6 @@ The selected hidden card leaves its slot permanently. A legal reveal resolves li
 
 ## Winning and rematches
 
-A player wins after a legal resolution when their hand and both field layers are empty. A final 2, 10, or matching-card burn wins immediately; the unused extra turn is ignored. A final 7 must receive its direction choice before victory. Results show turn and pickup counts. Both players must request a rematch; the server then creates a new game ID, shuffle, deal, and setup while preserving the room seats.
+A player wins after a legal resolution when their hand and both field layers are empty. A final 2, 10, or matching-card burn wins immediately; the unused extra turn is ignored. A final 7 must receive its direction choice before victory. The final play is shown for about 1.5 seconds before the result; forfeit results appear immediately. Results show turn and pickup counts. Both players must request a rematch; the server then creates a new game ID, shuffle, deal, and setup while preserving the room seats.
 
 An active player gets 10 minutes to reconnect, long enough to survive a locked phone or a quick app switch. Expiry during play gives the connected rival a forfeit victory. A single disconnect does not expire lobby, setup, or finished games, and finished results retain their winner. When both players leave, the room is kept for the configured room idle TTL. If a player returns after both disconnect deadlines elapsed, the absent player receives a fresh full reconnect grace.

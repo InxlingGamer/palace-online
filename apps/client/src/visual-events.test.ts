@@ -40,6 +40,7 @@ function state(overrides: Partial<PublicGameState> = {}): PublicGameState {
     opponentHiddenField: [],
     drawCount: 0,
     playPile: [card("pile-a", Rank.Ace), card("pile-k", Rank.King)],
+    lastPlay: null,
     burnedCount: 0,
     currentTurnPlayerId: "A",
     pendingSevenChoiceFor: null,

@@ -58,6 +58,7 @@ const playing = (
   players: [player("A", handA), player("B", handB)],
   drawPile: [],
   playPile: pile,
+  lastPlay: null,
   burned: [],
   currentTurnPlayerId: "A",
   pendingSevenChoiceFor: null,
@@ -92,6 +93,8 @@ describe("deck and dealing", () => {
 
   it("deals six hand cards and three hidden cards after both players ready", () => {
     let state = createLobby("ABC234");
+    expect(state.lastPlay).toBeNull();
+    state.lastPlay = { playerId: "A", cards: [card(Rank.Ten)] };
     const first = addPlayer(state, { id: "A", name: "Ada" });
     if (!first.ok) throw new Error(first.message);
     state = first.state;
@@ -102,6 +105,7 @@ describe("deck and dealing", () => {
     state = accepted(applyCommand(state, "B", { type: "READY" }, () => 0));
     expect(state.phase).toBe("setup");
     expect(state.drawPile).toHaveLength(34);
+    expect(state.lastPlay).toBeNull();
     expect(state.players[0]?.hand).toHaveLength(6);
     expect(state.players[0]?.hiddenField.filter(({ card }) => card)).toHaveLength(3);
   });
@@ -120,6 +124,8 @@ describe("starting player", () => {
 
   it("does not begin play until both setup selections are confirmed", () => {
     let state = createLobby("ABC234");
+    expect(state.lastPlay).toBeNull();
+    state.lastPlay = { playerId: "A", cards: [card(Rank.Ten)] };
     const first = addPlayer(state, { id: "A", name: "Ada" });
     if (!first.ok) throw new Error(first.message);
     const second = addPlayer(first.state, { id: "B", name: "Ben" });
@@ -169,6 +175,7 @@ describe("normal and power moves", () => {
         cardIds: cards.map(({ id }) => id),
       }),
     );
+    expect(state.lastPlay).toEqual({ playerId: "A", cards });
     expect(state.playPile.slice(-2).map(({ rank }) => rank)).toEqual([Rank.Eight, Rank.Eight]);
   });
 
@@ -213,6 +220,7 @@ describe("normal and power moves", () => {
     );
     expect(state.playPile).toHaveLength(0);
     expect(state.burned).toHaveLength(2);
+    expect(state.lastPlay).toEqual({ playerId: "A", cards: [ten] });
     expect(state.currentTurnPlayerId).toBe("A");
   });
 
@@ -231,6 +239,7 @@ describe("normal and power moves", () => {
     );
     expect(state.playPile).toHaveLength(0);
     expect(state.burned).toHaveLength(4);
+    expect(state.lastPlay).toEqual({ playerId: "A", cards: [fourth] });
   });
 
   it("rejects out-of-turn actions", () => {
@@ -252,21 +261,61 @@ describe("normal and power moves", () => {
 });
 
 describe("pickup, drawing, and endgame", () => {
-  it("only allows pickup when no legal hand card exists", () => {
-    const pile = [card(Rank.King)];
-    expect(
-      applyCommand(playing([card(Rank.Ace)], [card(Rank.Three)], pile), "A", {
-        type: "PICK_UP_PILE",
-      }),
-    ).toMatchObject({ ok: false, code: "LEGAL_MOVE_AVAILABLE" });
-    const state = accepted(
-      applyCommand(playing([card(Rank.Three)], [card(Rank.Four)], pile), "A", {
-        type: "PICK_UP_PILE",
-      }),
-    );
-    expect(state.players[0]?.hand).toHaveLength(2);
-    expect(state.playPile).toHaveLength(0);
-    expect(state.stats.pickups.A).toBe(1);
+  it("allows on-turn pickup with a legal move and passes the turn", () => {
+    const state = playing([card(Rank.Ace)], undefined, [card(Rank.King)]);
+    const next = accepted(applyCommand(state, "A", { type: "PICK_UP_PILE" }));
+    expect(next.players[0]!.hand).toHaveLength(2);
+    expect(next.playPile).toEqual([]);
+    expect(next.currentTurnPlayerId).toBe("B");
+    expect(next.stats.turnCount).toBe(state.stats.turnCount + 1);
+    expect(next.stats.pickups.A).toBe(1);
+    expect(next.lastPlay).toBeNull();
+  });
+
+  it("allows off-turn pickup without consuming a turn", () => {
+    const state = playing([card(Rank.Ace)], [card(Rank.Three)], [card(Rank.King)]);
+    state.lastPlay = { playerId: "A", cards: [...state.playPile] };
+    const next = accepted(applyCommand(state, "B", { type: "PICK_UP_PILE" }));
+    expect(next.players[1]!.hand).toEqual([...state.players[1]!.hand, ...state.playPile]);
+    expect(next.playPile).toEqual([]);
+    expect(next.currentTurnPlayerId).toBe("A");
+    expect(next.stats.turnCount).toBe(state.stats.turnCount);
+    expect(next.stats.pickups.B).toBe(1);
+    expect(next.turnSeq).toBe(state.turnSeq + 1);
+    expect(next.revision).toBe(state.revision + 1);
+    expect(next.lastPlay).toEqual(state.lastPlay);
+  });
+
+  it("rejects pickups on an empty pile, outside play, and during either player's seven choice", () => {
+    const state = playing([card(Rank.Three)]);
+    expect(applyCommand(state, "A", { type: "PICK_UP_PILE" })).toMatchObject({
+      ok: false,
+      code: "INVALID_PHASE",
+      message: "There is no pile to pick up.",
+    });
+    state.playPile = [card(Rank.Seven)];
+    for (const phase of ["lobby", "setup", "finished", "expired"] as const) {
+      expect(applyCommand({ ...state, phase }, "B", { type: "PICK_UP_PILE" })).toMatchObject({
+        ok: false,
+        code: "INVALID_PHASE",
+      });
+    }
+    for (const pendingSevenChoiceFor of ["A", "B"]) {
+      for (const id of ["A", "B"]) {
+        expect(
+          applyCommand({ ...state, pendingSevenChoiceFor }, id, { type: "PICK_UP_PILE" }),
+        ).toMatchObject({ ok: false, code: "SEVEN_CHOICE_REQUIRED" });
+      }
+    }
+  });
+
+  it("only consumes a restriction targeting the off-turn picker", () => {
+    for (const targetPlayerId of ["A", "B"]) {
+      const state = playing([card(Rank.Three)], undefined, [card(Rank.Seven)]);
+      state.restriction = { direction: "higher", targetPlayerId };
+      const next = accepted(applyCommand(state, "B", { type: "PICK_UP_PILE" }));
+      expect(next.restriction).toEqual(targetPlayerId === "B" ? null : state.restriction);
+    }
   });
 
   it("automatically draws only to the three-card minimum after a play", () => {
@@ -342,6 +391,10 @@ describe("pickup, drawing, and endgame", () => {
     expect(next.players[0]?.hand).toHaveLength(2);
     expect(next.players[0]?.hiddenField[0]?.card).toBeNull();
     expect(next.stats.pickups.A).toBe(1);
+    expect(next.lastPlay).toEqual({
+      playerId: "A",
+      cards: [state.players[0]!.hiddenField[0]!.card],
+    });
   });
 
   it("wins after the final legal hidden card resolves", () => {
@@ -351,6 +404,10 @@ describe("pickup, drawing, and endgame", () => {
     const next = accepted(applyCommand(state, "A", { type: "SELECT_HIDDEN_CARD", slotId }));
     expect(next.phase).toBe("finished");
     expect(next.winnerId).toBe("A");
+    expect(next.lastPlay).toEqual({
+      playerId: "A",
+      cards: [state.players[0]!.hiddenField[0]!.card],
+    });
   });
 
   it("resolves a final seven choice before declaring victory", () => {
@@ -368,6 +425,8 @@ describe("pickup, drawing, and endgame", () => {
     );
     expect(finished.phase).toBe("finished");
     expect(finished.winnerId).toBe("A");
+    expect(finished.lastPlay).toEqual(waiting.lastPlay);
+    expect(finished.lastPlay?.cards[0]?.rank).toBe(Rank.Seven);
   });
 
   it("starts a fresh deal only after both players request a rematch", () => {
@@ -377,12 +436,14 @@ describe("pickup, drawing, and endgame", () => {
     state.resultReason = "finished";
     state.currentTurnPlayerId = null;
     state.gameId = "old-game";
+    state.lastPlay = { playerId: "A", cards: [card(Rank.Ten)] };
     const waiting = accepted(applyCommand(state, "A", { type: "REQUEST_REMATCH" }, () => 0));
     expect(waiting.phase).toBe("finished");
     const rematch = accepted(applyCommand(waiting, "B", { type: "REQUEST_REMATCH" }, () => 0));
     expect(rematch.phase).toBe("setup");
     expect(rematch.gameId).not.toBe("old-game");
     expect(rematch.drawPile).toHaveLength(34);
+    expect(rematch.lastPlay).toBeNull();
   });
 });
 
@@ -487,5 +548,28 @@ describe("turn intent sequence", () => {
           .turnSeq,
       ).toBe(1);
     }
+  });
+});
+
+describe("last play projection", () => {
+  it("copies a normal play for both viewers without exposing unrevealed cards", () => {
+    const played = card(Rank.Nine);
+    const state = playing([played, card(Rank.Four)], [card(Rank.Queen)]);
+    const hidden = card(Rank.Ace);
+    const selected = card(Rank.King);
+    state.players[0] = player("A", state.players[0]!.hand, [selected], [hidden]);
+    expect(projectState(state, "B").lastPlay).toBeNull();
+    const next = accepted(applyCommand(state, "A", { type: "PLAY_CARDS", cardIds: [played.id] }));
+    expect(next.lastPlay).toEqual({ playerId: "A", cards: [played] });
+    for (const id of ["A", "B"]) {
+      const view = projectState(next, id);
+      expect(view.lastPlay).toEqual(next.lastPlay);
+      expect(view.lastPlay).not.toBe(next.lastPlay);
+      expect(view.lastPlay!.cards[0]).not.toBe(next.lastPlay!.cards[0]);
+      expect(JSON.stringify(view)).not.toContain(hidden.id);
+      expect(JSON.stringify(view)).not.toContain(selected.id);
+    }
+    expect(finishByForfeit(next, "B").lastPlay).toEqual(next.lastPlay);
+    expect(expireGame(next).lastPlay).toEqual(next.lastPlay);
   });
 });

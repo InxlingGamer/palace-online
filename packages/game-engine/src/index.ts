@@ -43,6 +43,7 @@ export interface GameState {
   players: PlayerState[];
   drawPile: Card[];
   playPile: Card[];
+  lastPlay: { playerId: string; cards: Card[] } | null;
   burned: Card[];
   currentTurnPlayerId: string | null;
   pendingSevenChoiceFor: string | null;
@@ -90,6 +91,7 @@ export function createLobby(roomCode: string): GameState {
     players: [],
     drawPile: [],
     playPile: [],
+    lastPlay: null,
     burned: [],
     currentTurnPlayerId: null,
     pendingSevenChoiceFor: null,
@@ -144,6 +146,7 @@ function dealGame(state: GameState, random: RandomInt): GameState {
   next.phase = "setup";
   next.drawPile = shuffleDeck(createDeck(), random);
   next.playPile = [];
+  next.lastPlay = null;
   next.burned = [];
   next.currentTurnPlayerId = null;
   next.pendingSevenChoiceFor = null;
@@ -286,6 +289,7 @@ function topFourMatch(pile: readonly Card[]): boolean {
 function playCommittedCards(state: GameState, player: PlayerState, cards: Card[]): void {
   const playedRank = cards[0]!.rank;
   if (state.restriction?.targetPlayerId === player.id) state.restriction = null;
+  state.lastPlay = { playerId: player.id, cards };
   state.playPile.push(...cards);
   state.stats.turnCount += 1;
 
@@ -381,14 +385,15 @@ function applySetup(
 
 function applyPickup(state: GameState, player: PlayerState): EngineResult | null {
   if (state.playPile.length === 0) return fail("INVALID_PHASE", "There is no pile to pick up.");
-  if (hasLegalMove(state, player.id))
-    return fail("LEGAL_MOVE_AVAILABLE", "You still have a legal card to play.");
+  const ownTurn = state.currentTurnPlayerId === player.id;
   if (state.restriction?.targetPlayerId === player.id) state.restriction = null;
   player.hand.push(...state.playPile);
   state.playPile = [];
-  state.stats.turnCount += 1;
+  if (ownTurn) {
+    state.stats.turnCount += 1;
+    state.currentTurnPlayerId = opponentOf(state, player.id).id;
+  }
   state.stats.pickups[player.id] = (state.stats.pickups[player.id] ?? 0) + 1;
-  state.currentTurnPlayerId = opponentOf(state, player.id).id;
   state.message = `${player.name} picked up the pile.`;
   return null;
 }
@@ -422,6 +427,7 @@ function applyHiddenCard(
   slot.card = null;
   if (!isRankLegal(state, player.id, revealed.rank)) {
     if (state.restriction?.targetPlayerId === player.id) state.restriction = null;
+    state.lastPlay = { playerId: player.id, cards: [revealed] };
     state.playPile.push(revealed);
     player.hand.push(...state.playPile);
     state.playPile = [];
@@ -476,7 +482,11 @@ export function applyCommand(
     else {
       if (state.pendingSevenChoiceFor && command.type !== "CHOOSE_SEVEN_DIRECTION")
         return fail("SEVEN_CHOICE_REQUIRED", "Choose higher or lower before continuing.");
-      if (command.type !== "CHOOSE_SEVEN_DIRECTION" && state.currentTurnPlayerId !== playerId)
+      if (
+        command.type !== "CHOOSE_SEVEN_DIRECTION" &&
+        command.type !== "PICK_UP_PILE" &&
+        state.currentTurnPlayerId !== playerId
+      )
         return fail("NOT_YOUR_TURN", "It is not your turn.");
       if (command.type === "PLAY_CARDS") error = playFromHand(state, player, command.cardIds);
       else if (command.type === "PICK_UP_PILE") error = applyPickup(state, player);
@@ -537,6 +547,7 @@ export function projectState(state: GameState, viewerId: string): PublicGameStat
     opponentHiddenField: opponent ? slotsView(opponent.hiddenField, "hidden") : [],
     drawCount: state.drawPile.length,
     playPile: state.playPile,
+    lastPlay: structuredClone(state.lastPlay),
     burnedCount: state.burned.length,
     currentTurnPlayerId: state.currentTurnPlayerId,
     pendingSevenChoiceFor: state.pendingSevenChoiceFor,

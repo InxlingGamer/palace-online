@@ -16,7 +16,7 @@ The client owns presentation-only state: selected hand IDs, audio preference, an
 
 The server's room record contains the complete `GameState`, opaque session mappings, action-result caches, active socket IDs, invalid-action timestamps, reconnect timers, and an empty-room timer. `packages/game-engine` owns deck creation, setup, legality, effects, phases, statistics, and projection. Engine transitions clone their input and return either a new state or a stable public error code.
 
-Each player projection includes that player's visible hand, public pile cards, counts, field slot occupancy, connection state, and game metadata. Opponent hand values and all face-down field values are excluded structurally rather than hidden only in the interface.
+Each player projection includes that player's visible hand, public pile cards, a deep copy of `lastPlay` containing only already-revealed cards (including burned cards), counts, field slot occupancy, connection state, and game metadata. Opponent hand values and all face-down field values are excluded structurally rather than hidden only in the interface.
 
 ## API and socket protocol
 

@@ -22,6 +22,7 @@ import {
   type PublicGameState,
 } from "@palace/shared";
 import { createActionSender, shouldAcceptSnapshot } from "./action-sender";
+import { canPickUpPile } from "./pickup";
 import { useSound } from "./audio";
 import { ResultOverlay, SevenRestrictionAlert } from "./feedback";
 import { restrictionForViewer } from "./restriction";
@@ -350,6 +351,7 @@ export function App() {
   const snapshotRef = useRef<PublicGameState | null>(null);
   const [flights, setFlights] = useState<CardFlight[]>([]);
   const [animateResult, setAnimateResult] = useState(false);
+  const [presentedResult, setPresentedResult] = useState<string | null>(null);
   const [connection, setConnection] = useState<"connected" | "reconnecting" | "offline">(
     "reconnecting",
   );
@@ -357,6 +359,7 @@ export function App() {
   const previousRef = useRef<PublicGameState | null>(null);
   const flightTimerRef = useRef<number | null>(null);
   const resultGameRef = useRef<string | null>(null);
+  const resultTimerRef = useRef<number | null>(null);
   const sound = useSound();
   const rejectSoundRef = useRef(sound.play);
 
@@ -534,23 +537,39 @@ export function App() {
 
   useEffect(() => {
     if (!state || state.phase !== "finished" || !state.gameId) {
+      if (resultTimerRef.current !== null) window.clearTimeout(resultTimerRef.current);
+      resultTimerRef.current = null;
       resultGameRef.current = null;
+      setPresentedResult(null);
       setAnimateResult(false);
       return;
     }
     if (resultGameRef.current === state.gameId) return;
+    if (resultTimerRef.current !== null) window.clearTimeout(resultTimerRef.current);
     resultGameRef.current = state.gameId;
+    setPresentedResult(null);
     const key = `palace-result-${state.gameId}-${state.you.id}`;
     const alreadyPresented = sessionStorage.getItem(key) === "true";
-    setAnimateResult(!alreadyPresented);
-    if (!alreadyPresented) {
-      sessionStorage.setItem(key, "true");
-      sound.play(state.winnerId === state.you.id ? "win" : "lose");
-    }
+    const present = () => {
+      resultTimerRef.current = null;
+      setAnimateResult(!alreadyPresented);
+      setPresentedResult(state.gameId);
+      if (!alreadyPresented) {
+        sessionStorage.setItem(key, "true");
+        sound.play(state.winnerId === state.you.id ? "win" : "lose");
+      }
+    };
+    if (!alreadyPresented && state.resultReason === "finished" && state.lastPlay) {
+      resultTimerRef.current = window.setTimeout(
+        present,
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 700 : 1500,
+      );
+    } else present();
   }, [sound, state]);
 
   useEffect(
     () => () => {
+      if (resultTimerRef.current !== null) window.clearTimeout(resultTimerRef.current);
       senderRef.current?.dispose();
       socketRef.current?.disconnect();
       if (flightTimerRef.current) window.clearTimeout(flightTimerRef.current);
@@ -604,10 +623,16 @@ export function App() {
 
   const yourTurn = state.currentTurnPlayerId === state.you.id;
   const pendingSeven = state.pendingSevenChoiceFor === state.you.id;
-  const canPickup =
+  const canPickup = canPickUpPile(state);
+  const noLegalCard =
     yourTurn &&
-    state.playPile.length > 0 &&
+    state.you.hand.length > 0 &&
     !state.you.hand.some(({ rank }) => isLegal(state, rank));
+  const holdingFinalPlay =
+    state.phase === "finished" &&
+    state.resultReason === "finished" &&
+    state.lastPlay !== null &&
+    presentedResult !== state.gameId;
   const selectedRank = state.you.hand.find(({ id }) => id === selected[0])?.rank;
   const sortedHand = [...state.you.hand].sort(
     (left, right) => handRankValue.get(left.rank)! - handRankValue.get(right.rank)!,
@@ -748,7 +773,21 @@ export function App() {
             <small>{drawBusy ? "Drawing…" : "Draw pile"}</small>
           </div>
           <div className={`play-stack ${state.burnedCount ? "play-stack--active" : ""}`}>
-            {state.playPile.length ? (
+            {holdingFinalPlay && state.lastPlay ? (
+              <div className="final-play" data-final-play="true" aria-label="Final play">
+                {state.lastPlay.cards.map((card, index, cards) => (
+                  <div
+                    key={card.id}
+                    style={{
+                      transform: `translateX(${(index - (cards.length - 1) / 2) * 10}px) rotate(${(index - (cards.length - 1) / 2) * 5}deg)`,
+                    }}
+                  >
+                    <Card card={card} />
+                  </div>
+                ))}
+                <small>{state.lastPlay.cards.length === 1 ? "Final card" : "Final cards"}</small>
+              </div>
+            ) : state.playPile.length ? (
               <Card card={state.playPile.at(-1)!} />
             ) : (
               <div className="pile-empty">
@@ -756,7 +795,7 @@ export function App() {
                 <small>Play pile</small>
               </div>
             )}
-            {state.playPile.length > 1 && (
+            {!holdingFinalPlay && state.playPile.length > 1 && (
               <span className="count-badge">{state.playPile.length}</span>
             )}
           </div>
@@ -769,7 +808,15 @@ export function App() {
 
         <div className="status-banner" aria-live="polite">
           <span className={yourTurn ? "turn-dot turn-dot--yours" : "turn-dot"} />{" "}
-          <b>{yourTurn ? "Your turn" : opponent ? `${opponent.name}'s turn` : "Waiting"}</b>
+          <b>
+            {state.phase === "finished"
+              ? "Game over"
+              : yourTurn
+                ? "Your turn"
+                : opponent
+                  ? `${opponent.name}'s turn`
+                  : "Waiting"}
+          </b>
           <span>{state.message}</span>
           {sevenRestriction && (
             <em>{sevenRestriction === "higher" ? "↑ Higher than 7" : "↓ Lower than 7"}</em>
@@ -887,12 +934,16 @@ export function App() {
                 {selected.length
                   ? `${selected.length} × ${selectedRank}`
                   : yourTurn
-                    ? "Choose a card"
+                    ? noLegalCard
+                      ? "No legal card"
+                      : "Choose a card"
                     : "Waiting"}
               </b>
               <span>
                 {yourTurn
-                  ? "Power cards are always legal."
+                  ? noLegalCard
+                    ? "Pick up the pile."
+                    : "Power cards are always legal."
                   : `Waiting for ${opponent?.name ?? "the other player"}.`}
               </span>
             </div>
@@ -934,7 +985,7 @@ export function App() {
           </>
         )}
       </div>
-      {state.phase === "finished" && (
+      {state.phase === "finished" && presentedResult === state.gameId && (
         <ResultOverlay
           winner={state.winnerId === state.you.id}
           forfeit={state.resultReason === "forfeit"}

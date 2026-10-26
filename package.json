@@ -18,7 +18,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:e2e:scenarios": "cross-env TEST_GAME_SCENARIO=seven-restriction playwright test -c playwright.scenario.config.ts && cross-env TEST_GAME_SCENARIO=blind-pickup playwright test -c playwright.scenario.config.ts && cross-env TEST_GAME_SCENARIO=finished-result playwright test -c playwright.scenario.config.ts",
+    "test:e2e:scenarios": "cross-env TEST_GAME_SCENARIO=seven-restriction playwright test -c playwright.scenario.config.ts && cross-env TEST_GAME_SCENARIO=blind-pickup playwright test -c playwright.scenario.config.ts && cross-env TEST_GAME_SCENARIO=finished-result playwright test -c playwright.scenario.config.ts && cross-env TEST_GAME_SCENARIO=pickup-anytime playwright test -c playwright.scenario.config.ts && cross-env TEST_GAME_SCENARIO=final-play playwright test -c playwright.scenario.config.ts",
     "test:e2e:full": "pnpm test:e2e && pnpm test:e2e:scenarios",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build"
   },

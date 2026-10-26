@@ -1,7 +1,8 @@
 import type { GameState } from "@palace/game-engine";
 import { Rank, Suit, type Card } from "@palace/shared";
 
-export type TestGameScenario = "seven-restriction" | "blind-pickup" | "finished-result";
+export type TestGameScenario =
+  "seven-restriction" | "blind-pickup" | "finished-result" | "pickup-anytime" | "final-play";
 
 const card = (id: string, rank: Rank, suit = Suit.Spades): Card => ({ id, rank, suit });
 
@@ -13,6 +14,7 @@ export function applyTestScenario(state: GameState, scenario: TestGameScenario):
 
   next.drawPile = [];
   next.playPile = [];
+  next.lastPlay = null;
   next.burned = [];
   next.pendingSevenChoiceFor = null;
   next.restriction = null;
@@ -24,6 +26,33 @@ export function applyTestScenario(state: GameState, scenario: TestGameScenario):
   if (scenario === "seven-restriction") {
     first.hand = [card("scenario-seven", Rank.Seven), card("scenario-three", Rank.Three)];
     second.hand = [card("scenario-eight", Rank.Eight), card("scenario-two", Rank.Two)];
+    next.message = `${first.name}'s turn.`;
+    return next;
+  }
+
+  if (scenario === "pickup-anytime") {
+    first.hand = [card("scenario-nine", Rank.Nine), card("scenario-four", Rank.Four)];
+    second.hand = [
+      card("scenario-queen", Rank.Queen, Suit.Hearts),
+      card("scenario-three", Rank.Three, Suit.Hearts),
+    ];
+    next.playPile = [card("scenario-eight", Rank.Eight, Suit.Clubs)];
+    next.message = `${first.name}'s turn.`;
+    return next;
+  }
+
+  if (scenario === "final-play") {
+    first.hand = [card("scenario-ten", Rank.Ten, Suit.Diamonds)];
+    first.selectedField = Array.from({ length: 3 }, (_, index) => ({
+      slotId: `scenario-selected-${index}`,
+      card: null,
+    }));
+    first.hiddenField = Array.from({ length: 3 }, (_, index) => ({
+      slotId: `scenario-hidden-${index}`,
+      card: null,
+    }));
+    second.hand = [card("scenario-king", Rank.King), card("scenario-three", Rank.Three)];
+    next.playPile = [card("scenario-five", Rank.Five, Suit.Clubs)];
     next.message = `${first.name}'s turn.`;
     return next;
   }

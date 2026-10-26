@@ -99,6 +99,51 @@ const reconnect = (socket: Socket) =>
   });
 
 describe("multiplayer turn conflict policy", () => {
+  it("broadcasts off-turn pickup and rejects a play carrying the old turn sequence", async () => {
+    const p = await pair({ TEST_GAME_SCENARIO: "pickup-anytime" });
+    await p.start();
+    const turn = p.record.state.currentTurnPlayerId;
+    const pile = [...p.record.state.playPile];
+    const move = p.envelope({
+      type: "PLAY_CARDS",
+      cardIds: [p.record.state.players[0]!.hand[0]!.id],
+    });
+    const snapshots = Promise.all(
+      p.clients.map(
+        (client) =>
+          new Promise<PublicGameState>((resolve) => client.once("state:snapshot", resolve)),
+      ),
+    );
+    expect((await p.send(p.b, { type: "PICK_UP_PILE" })).accepted).toBe(true);
+    const [a, b] = await snapshots;
+    for (const view of [a!, b!]) {
+      expect(view.currentTurnPlayerId).toBe(turn);
+      expect(view.playPile).toEqual([]);
+    }
+    expect(a!.opponent!.handCount).toBe(3);
+    expect(b!.you.handCount).toBe(3);
+    expect(b!.you.hand).toEqual(expect.arrayContaining(pile));
+    expect(await p.a.emitWithAck("game:action", move)).toMatchObject({
+      accepted: false,
+      error: { code: "STALE_STATE" },
+    });
+  });
+
+  it("broadcasts lastPlay to both players after a play", async () => {
+    const p = await pair({ TEST_GAME_SCENARIO: "pickup-anytime" });
+    await p.start();
+    const card = p.record.state.players[0]!.hand[0]!;
+    const snapshots = Promise.all(
+      p.clients.map(
+        (client) =>
+          new Promise<PublicGameState>((resolve) => client.once("state:snapshot", resolve)),
+      ),
+    );
+    expect((await p.send(p.a, { type: "PLAY_CARDS", cardIds: [card.id] })).accepted).toBe(true);
+    for (const view of await snapshots)
+      expect(view.lastPlay).toEqual({ playerId: p.record.state.players[0]!.id, cards: [card] });
+  });
+
   it("accepts simultaneous draws and double draws without stale conflicts", async () => {
     const p = await pair();
     await p.start();
