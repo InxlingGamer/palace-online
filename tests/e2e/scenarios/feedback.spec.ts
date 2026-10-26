@@ -55,12 +55,14 @@ async function createReadyGame(browser: Browser): Promise<Players> {
     await expect(playerA.locator(".hand [data-card-id]")).toHaveCount(0);
     await expect(playerB.locator(".opponent-hand .card--back")).toHaveCount(0);
   } else if (scenario === "pickup-anytime") {
+    await expect(playerA.locator('.play-stack [data-card-rank="8"]')).toBeVisible();
+    for (const page of [playerA, playerB])
+      await expect(page.locator(".hand [data-card-id]")).toHaveCount(2);
     await expect(playerA.locator('.hand [data-card-rank="9"]')).toBeVisible();
     await expect(playerB.locator('.hand [data-card-rank="Q"]')).toBeVisible();
-    await expect(playerA.locator('.play-stack [data-card-rank="8"]')).toBeVisible();
   } else if (scenario === "final-play") {
-    await expect(playerA.locator('.hand [data-card-rank="10"]')).toBeVisible();
     await expect(playerA.locator(".hand [data-card-id]")).toHaveCount(1);
+    await expect(playerA.locator('.hand [data-card-rank="10"]')).toBeVisible();
     await expect(playerB.locator('.play-stack [data-card-rank="5"]')).toBeVisible();
   } else if (scenario === "finished-result") {
     await expect(playerA.getByRole("dialog")).toBeVisible();
@@ -228,6 +230,8 @@ for (const reducedMotion of [false, true]) {
         ),
       );
       for (const page of pages) {
+        // Mobile-emulated WebKit on Linux CI can crash reloading mid-confetti; the rejoin check is motion-independent.
+        await page.emulateMedia({ reducedMotion: "reduce" });
         await page.reload();
         await expect(page.getByRole("dialog")).toBeVisible();
         await expect(page.locator('[data-final-play="true"]')).toHaveCount(0);
