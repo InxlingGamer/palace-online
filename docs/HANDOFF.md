@@ -2,7 +2,7 @@
 
 Living status document for the 2026 audit and overhaul. Keep it current at every checkpoint so any new chat can pick up from here. Read this first, then `README.md`, `docs/ARCHITECTURE.md`, and `docs/RULES.md`.
 
-_Last updated: 2026-10-26 — Milestone 2 implemented, reviewed, and committed on its branch; PR awaiting the owner's merge approval. Next: Milestone 3._
+_Last updated: 2026-10-26 — Milestone 2 done; [PR #1](https://github.com/InxlingGamer/palace-online/pull/1) open and awaiting the owner's merge approval. Next: Milestone 3._
 
 ## How to resume
 
@@ -28,11 +28,36 @@ _Last updated: 2026-10-26 — Milestone 2 implemented, reviewed, and committed o
 
 ## Current state
 
-- Active branch: `overhaul/m2-multiplayer-reliability` (from `main` @ `eb15690`).
-- Milestone 1 (audit) is complete and approved. Milestone 2 is implemented (Codex), reviewed and amended (Claude), and committed on the branch. Merging the PR deploys to production, so wait for the owner's approval.
+- Active branch: `overhaul/m2-multiplayer-reliability` (from `main` @ `eb15690`), pushed to origin.
+- Open PR: [InxlingGamer/palace-online#1](https://github.com/InxlingGamer/palace-online/pull/1) — "Fix false network mismatch errors and harden the multiplayer server". Not merged. **Merging deploys to production**; only merge when the owner explicitly says so, and preferably when nobody is mid-game (games are in memory).
+- Milestone 1 (audit) is complete and approved. Milestone 2 is implemented (Codex), reviewed and amended (Claude), committed, and pushed.
 - Verification for M2: 65/65 Vitest tests (3 consecutive runs), 4/4 typechecks, ESLint, Prettier; Playwright 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape) including a new simultaneous-draw test; scenario suites 9/9. The original reproduction now accepts simultaneous draws, a play racing an opponent draw, and double draws.
 - Baseline before M2: 43 unit/integration tests.
-- Next step: Milestone 3 (pick up anytime; final-card reveal), on a new branch cut from the M2 branch (or from `main` once M2 is merged).
+- Next step: Milestone 3, described below. Branch `overhaul/m3-requested-rules` from `overhaul/m2-multiplayer-reliability` (M3 builds on `turnSeq`); if PR #1 has been merged by then, branch from `main` instead. Open the M3 PR against whichever base was used.
+
+## Next up: Milestone 3 plan
+
+Both changes were approved by the owner on 2026-10-26 (see **Decisions**). Ship them together with engine tests, server integration tests, and a browser test, then update `docs/RULES.md`.
+
+1. **Pick up the pile at any time, regardless of whose turn it is.**
+   - Engine (`packages/game-engine/src/index.ts`): `PICK_UP_PILE` no longer requires your turn or the absence of a legal move. Still requires `phase === "playing"` and a non-empty pile, and is rejected while `pendingSevenChoiceFor` is set.
+   - On your own turn: same as today (cards to hand, turn passes, pickup stats, any seven restriction targeting you is consumed).
+   - Off-turn: cards go to your hand, the turn does **not** change, pickup stats increment, and a seven restriction targeting you is consumed.
+   - It still bumps `turnSeq` (pile changed), so an opponent play racing it gets the neutral "table changed" notice. Decide whether `stats.turnCount` should count off-turn pickups (recommend: no).
+   - Turn gating lives in the engine: `applyCommand` returns `NOT_YOUR_TURN` for every non-draw command when it isn't your turn, and `applyPickup` returns `LEGAL_MOVE_AVAILABLE` — both must change for pickup. The server needs no change; `PICK_UP_PILE` stays a turn command for the `expectedTurn` check in `RoomStore.apply`.
+   - Client (`App.tsx`): show "Pick up pile" whenever the pile is non-empty in play and no seven choice is pending, for both players; keep it disabled while an action is pending. Update the `canPickup` logic and the dock copy. Remove the client-side "no legal move" requirement.
+   - Remove the `LEGAL_MOVE_AVAILABLE` rejection path (or leave the error code unused) and update tests that assert it.
+2. **Show the final card before WINNER/LOSER.**
+   - Engine/shared: add a public `lastPlay: { playerId: string; cards: Card[] } | null` to state and projection, set on every accepted play and hidden-card reveal (including plays that burn the pile), cleared on deal. Only already-revealed cards go in it — never hidden values.
+   - Client: when the phase becomes `finished` with `resultReason === "finished"`, render `lastPlay.cards` on the play pile area for ~1.5 s (respect `prefers-reduced-motion` with a shorter hold), then show `ResultOverlay`. The win sound plays when the overlay appears. Forfeit results skip the hold.
+   - Rejoining a finished room shows the overlay immediately (the existing `sessionStorage` "already presented" key covers this).
+
+## After Milestone 3
+
+- **M4 redesign:** classic green felt. First produce a mockup of the table (desktop and iPhone portrait) for owner approval before implementation. Keep the join flow working. Cards: cream faces with proper pip layouts and original court-card treatment (no copyrighted art); one card-back design. Clear turn indicator, legal-card indication, last-move indicator, lobby with an invite/copy button, sounds on by default, reduced-motion support. Gate hover styles with `@media (hover: hover)`.
+- **M5 hand layout:** single sideways-scrolling hand sorted as today (owner's choice). Acceptance: 20+ cards on iPhone 15 Plus (430×739 CSS px) are identifiable and individually selectable, nothing under the action dock, no page scroll/zoom or text selection conflicts, tap vs. swipe disambiguated, selected cards stay visible, smooth with 26+ cards. Measure with the audit harness (`output/audit/shots.ts`).
+- **M6:** "waking the table" screen for Render cold starts (the first request after 15 idle minutes takes about a minute).
+- **M7:** full regression on desktop + iPhone WebKit, a written iPhone checklist for the owner, final HANDOFF update.
 
 ## Milestones
 
