@@ -178,6 +178,13 @@ Work (Codex brief, Claude review):
 2. **Rejoin automatically.** iOS relaunches a Home Screen app at its start page, not the table. On launch, if the last table still exists, go straight into it; otherwise show the lobby with the name filled in and a short note that the table ended.
 3. **Icon: option E (chosen 2026-10-27).** Like the earlier fanned pair, but the front card is cream with a burgundy palace and a gold pennant, over the burgundy card back, on felt (mockup canvas artboard "M7 — Home Screen icon options").
 4. **Use the entire screen (owner, emphasised).** The app must run edge to edge, including the strip behind the clock, battery and Dynamic Island: the walnut top bar extends under the status bar, with no white or black band above it. The dock clears the home indicator. iOS always draws the clock and battery on top; web apps can't hide them, so the top bar's contents start below them via `env(safe-area-inset-top)`.
+5. **Owner answers at the start of the M7 build (2026-10-27):**
+   - Staging doesn't exist yet. Build and test M7 in emulation first; the owner creates staging later and sends the URL.
+   - **Real-iPhone test before merge:** the owner temporarily points staging at `overhaul/m7-home-screen`, tests the PR on the iPhone, then switches staging back to `overhaul/next` before merging.
+   - **Auto-rejoin everywhere:** opening "/" in the Home Screen app or in Safari goes straight back to the last table if it still exists (any phase, including a finished game). "Return home" forgets it.
+   - **Waking launch screen built to Claude's spec without a mockup:** felt with the walnut top strip, icon E's card pair centred, "Waking the table…" in Source Serif plus the M6 explanation, a slow gold pulse (static with reduced motion). The owner reviews screenshots in the PR.
+   - Claude's call: icon E's back card is the Classic red scroll back, as on the mockup artboard.
+   - Finding: CI's `push` trigger only covers `main`, so a merge commit on `overhaul/next` (or a push to the M7 branch) gets no checks of its own, and a staging service set to deploy "after CI checks pass" may never deploy. M7 adds `overhaul/**` push triggers (free for a public repo).
 
 ### Card decks and lobby deck picker (owner request, 2026-10-27; done, [PR #9](https://github.com/InxlingGamer/palace-online/pull/9) merged into `overhaul/next` as `9e2f606`; not deployed)
 
