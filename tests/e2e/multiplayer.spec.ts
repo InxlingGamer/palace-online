@@ -12,8 +12,17 @@ async function createPlayer(context: BrowserContext, name: string): Promise<Page
 test("two isolated players can join, ready, set up, synchronize, and reconnect", async ({
   browser,
 }) => {
-  const contextA = await browser.newContext();
-  const contextB = await browser.newContext();
+  // The in-game overflow checks must use the configured phone/desktop viewport too.
+  const { viewport, isMobile, hasTouch, deviceScaleFactor, userAgent } = test.info().project.use;
+  const options = {
+    ...(viewport !== undefined ? { viewport } : {}),
+    ...(isMobile !== undefined ? { isMobile } : {}),
+    ...(hasTouch !== undefined ? { hasTouch } : {}),
+    ...(deviceScaleFactor !== undefined ? { deviceScaleFactor } : {}),
+    ...(userAgent !== undefined ? { userAgent } : {}),
+  };
+  const contextA = await browser.newContext(options);
+  const contextB = await browser.newContext(options);
   const playerA = await createPlayer(contextA, "Ada");
   const roomCode = await playerA
     .getByRole("button", { name: /Copy invitation/ })
@@ -64,6 +73,24 @@ test("two isolated players can join, ready, set up, synchronize, and reconnect",
   await expect(playerB.locator(".opponent-hand")).not.toContainText(/[2-9JQKA]/);
   await expect(playerA.locator(".card__back-mark")).toHaveCount(0);
 
+  for (const page of [playerA, playerB]) {
+    expect(
+      await page.evaluate(() => ({
+        horizontal: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        vertical: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+      })),
+    ).toEqual({ horizontal: 0, vertical: 0 });
+    expect(
+      await page
+        .locator(".hand")
+        .evaluate(
+          (el) =>
+            getComputedStyle(el).getPropertyValue("scrollbar-width") === "none" ||
+            getComputedStyle(el, "::-webkit-scrollbar").display === "none",
+        ),
+    ).toBe(true);
+  }
+
   const turnBeforeDraw = await playerA.locator(".status-banner b").textContent();
   await playerA.locator(".deck-stack button").click();
   await expect(playerA.locator(".hand [data-card-id]")).toHaveCount(4);
@@ -78,9 +105,13 @@ test("two isolated players can join, ready, set up, synchronize, and reconnect",
   await playerB.locator(".deck-stack button").click();
   await expect(playerB.locator(".hand [data-card-id]")).toHaveCount(4);
 
-  await playerA.reload();
-  await expect(playerA.getByRole("button", { name: /Copy invitation/ })).toBeVisible();
-  await expect(playerA.getByText("Ben", { exact: true })).toBeVisible();
+  // Mobile-emulated WebKit on Linux CI intermittently crashes the page on reload (see the
+  // scenario rejoin test). The reconnect path is browser-agnostic, so check it on desktop.
+  if (!isMobile) {
+    await playerA.reload();
+    await expect(playerA.getByRole("button", { name: /Copy invitation/ })).toBeVisible();
+    await expect(playerA.getByText("Ben", { exact: true })).toBeVisible();
+  }
 
   await contextA.close();
   await contextB.close();

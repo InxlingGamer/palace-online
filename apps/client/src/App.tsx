@@ -12,9 +12,6 @@ import {
   NORMAL_RANKS,
   POWER_RANKS,
   Rank,
-  Suit,
-  rankLabel,
-  suitSymbol,
   type ActionResult,
   type Card as CardType,
   type GameCommand,
@@ -22,6 +19,9 @@ import {
   type PublicGameState,
 } from "@palace/shared";
 import { createActionSender, shouldAcceptSnapshot } from "./action-sender";
+import { Card, CardBack } from "./cards";
+import { Hand } from "./hand";
+import { lastMoveText, requirementText } from "./table-copy";
 import { canPickUpPile } from "./pickup";
 import { useSound } from "./audio";
 import { ResultOverlay, SevenRestrictionAlert } from "./feedback";
@@ -64,97 +64,6 @@ async function api<T>(url: string, init: RequestInit): Promise<T> {
   const body = (await response.json()) as T & { error?: { message: string } };
   if (!response.ok) throw new Error(body.error?.message ?? "Request failed.");
   return body;
-}
-
-function Card({
-  card,
-  selected = false,
-  index = 0,
-  count = 1,
-  onClick,
-}: {
-  card: CardType;
-  selected?: boolean;
-  index?: number;
-  count?: number;
-  onClick?: () => void;
-}) {
-  const red = card.suit === Suit.Hearts || card.suit === Suit.Diamonds;
-  const middle = (count - 1) / 2;
-  const offset = index - middle;
-  const style = {
-    "--card-index": index,
-    "--card-offset": offset,
-    "--card-curve": `${Math.abs(offset) * 2.3}px`,
-  } as CSSProperties;
-  const label = `${rankLabel[card.rank]} of ${card.suit}${selected ? ", selected" : ""}`;
-  const content = (
-    <>
-      <span className="card__corner">
-        <b>{card.rank}</b>
-        <span>{suitSymbol[card.suit]}</span>
-      </span>
-      <span className="card__pip" aria-hidden="true">
-        {suitSymbol[card.suit]}
-      </span>
-      <span className="sr-only">{label}</span>
-    </>
-  );
-  const className = `card ${red ? "card--red" : ""} ${selected ? "card--selected" : ""}`;
-  return onClick ? (
-    <button
-      className={className}
-      style={style}
-      onClick={onClick}
-      aria-label={label}
-      aria-pressed={selected}
-      type="button"
-      data-card-id={card.id}
-      data-card-rank={card.rank}
-    >
-      {content}
-    </button>
-  ) : (
-    <div
-      className={className}
-      style={style}
-      aria-label={label}
-      data-card-id={card.id}
-      data-card-rank={card.rank}
-    >
-      {content}
-    </div>
-  );
-}
-
-function CardBack({
-  label = "Face-down card",
-  onClick,
-  dramatic = false,
-  disabled = false,
-}: {
-  label?: string;
-  onClick?: () => void;
-  dramatic?: boolean;
-  disabled?: boolean;
-}) {
-  const className = `card card--back ${dramatic ? "card--dramatic" : ""}`;
-  const pattern = <span className="card__back-pattern" aria-hidden="true" />;
-  return onClick ? (
-    <button
-      className={className}
-      onClick={onClick}
-      type="button"
-      aria-label={label}
-      disabled={disabled}
-    >
-      {pattern}
-    </button>
-  ) : (
-    <div className={className} aria-label={label}>
-      {pattern}
-    </div>
-  );
 }
 
 function FlightLayer({ flights }: { flights: CardFlight[] }) {
@@ -278,12 +187,9 @@ function Lobby({
 
   return (
     <main className="landing">
-      <div className="landing__glow" aria-hidden="true" />
       <section className="hero">
         <div className="brand-mark" aria-hidden="true">
-          <span>♠</span>
           <b>P</b>
-          <span>♥</span>
         </div>
         <h1>
           Palace <em>Online</em>
@@ -682,7 +588,6 @@ export function App() {
     <main className="game-shell" onPointerDown={sound.unlock}>
       <header className="game-header">
         <div className="mini-brand">
-          <span>P</span>
           <b>Palace</b>
         </div>
         <button
@@ -692,7 +597,11 @@ export function App() {
         >
           <small>Room</small>
           <b>{state.roomCode}</b>
-          <span>Copy</span>
+          <span className="copy-label">Copy invite link</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="9" y="9" width="12" height="12" rx="2" />
+            <path d="M5 15H4V3h11v2" />
+          </svg>
         </button>
         <div className="header-actions">
           <span className={`connection connection--${connection}`}>
@@ -704,7 +613,17 @@ export function App() {
             onClick={() => sound.setMuted(!sound.muted)}
             aria-label={sound.muted ? "Turn sound on" : "Mute sound"}
           >
-            {sound.muted ? "🔇" : "🔊"}
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+              {sound.muted ? (
+                <path d="m16 9 6 6m0-6-6 6" />
+              ) : (
+                <>
+                  <path d="M15.5 8.5a5 5 0 0 1 0 7" />
+                  <path d="M18.5 5.5a9 9 0 0 1 0 13" />
+                </>
+              )}
+            </svg>
           </button>
         </div>
       </header>
@@ -720,15 +639,16 @@ export function App() {
       )}
       <section className="table" aria-label="Palace card table">
         <div className="opponent-zone">
-          <div className="player-label">
+          <div
+            className={`player-label ${state.phase === "playing" && !yourTurn ? "seat--active" : ""}`}
+          >
             <span className="avatar">{opponent?.name.slice(0, 1).toUpperCase() ?? "?"}</span>
             <div>
               <b>{opponent?.name ?? "Waiting…"}</b>
-              <small>
-                {opponent
-                  ? `${opponent.handCount} card${opponent.handCount === 1 ? "" : "s"}`
-                  : "Waiting for player"}
-              </small>
+              {state.phase === "playing" && !yourTurn && (
+                <span className="turn-badge">{opponent?.name.toUpperCase()}'S TURN</span>
+              )}
+              <small>{opponent ? `${opponent.handCount} in hand` : "Waiting for player"}</small>
             </div>
             {opponent && (
               <span
@@ -757,6 +677,7 @@ export function App() {
         </div>
 
         <div className="table-center">
+          {lastMoveText(state) && <div className="last-move">{lastMoveText(state)}</div>}
           <div className="deck-stack">
             <CardBack
               label={
@@ -788,10 +709,20 @@ export function App() {
                 <small>{state.lastPlay.cards.length === 1 ? "Final card" : "Final cards"}</small>
               </div>
             ) : state.playPile.length ? (
-              <Card card={state.playPile.at(-1)!} />
+              <div className="pile-fan">
+                {state.playPile.slice(-4).map((card, index, cards) => (
+                  <div
+                    key={card.id}
+                    style={{
+                      transform: `translateX(${(index - (cards.length - 1) / 2) * 9}px) rotate(${(index - (cards.length - 1) / 2) * 6}deg)`,
+                    }}
+                  >
+                    <Card card={card} />
+                  </div>
+                ))}
+              </div>
             ) : (
               <div className="pile-empty">
-                <span>♛</span>
                 <small>Play pile</small>
               </div>
             )}
@@ -800,9 +731,8 @@ export function App() {
             )}
           </div>
           <div className="burn-zone">
-            <span>✦</span>
             <b>{state.burnedCount}</b>
-            <small>Burned</small>
+            <small>BURNED</small>
           </div>
         </div>
 
@@ -817,10 +747,7 @@ export function App() {
                   ? `${opponent.name}'s turn`
                   : "Waiting"}
           </b>
-          <span>{state.message}</span>
-          {sevenRestriction && (
-            <em>{sevenRestriction === "higher" ? "↑ Higher than 7" : "↓ Lower than 7"}</em>
-          )}
+          <span>{requirementText(state)}</span>
         </div>
 
         <div className="player-zone">
@@ -832,27 +759,36 @@ export function App() {
             pending={pending}
             onHidden={(slotId) => void act({ type: "SELECT_HIDDEN_CARD", slotId })}
           />
-          <div
-            className={`hand ${state.phase === "setup" ? "hand--setup" : ""}`}
-            aria-label="Your hand"
-          >
-            {sortedHand.map((card, index) => (
+          <Hand count={sortedHand.length} setup={state.phase === "setup"}>
+            {sortedHand.map((card) => (
               <Card
                 key={card.id}
                 card={card}
                 selected={selected.includes(card.id)}
-                index={index}
-                count={sortedHand.length}
+                illegal={
+                  state.phase === "playing" &&
+                  yourTurn &&
+                  !state.pendingSevenChoiceFor &&
+                  !isLegal(state, card.rank)
+                }
                 onClick={() => toggleCard(card)}
               />
             ))}
-          </div>
-          <div className="your-label">
+          </Hand>
+          <div
+            className={`your-label ${state.phase === "playing" && yourTurn ? "seat--active" : ""}`}
+          >
             <span className="avatar avatar--you">{state.you.name.slice(0, 1).toUpperCase()}</span>
             <div>
               <b>{state.you.name}</b>
-              <small>You · {state.you.cardPhase.replace("-", " ")}</small>
+              {state.phase === "playing" && yourTurn && (
+                <span className="turn-badge">YOUR TURN</span>
+              )}
+              <small>{state.you.handCount} in hand</small>
             </div>
+            <span className={`presence ${state.you.ready ? "presence--ready" : ""}`}>
+              {state.you.ready ? "Ready" : state.you.connected ? "Online" : "Disconnected"}
+            </span>
           </div>
         </div>
       </section>
