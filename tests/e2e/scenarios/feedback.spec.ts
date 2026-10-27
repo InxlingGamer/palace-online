@@ -54,7 +54,7 @@ async function createReadyGame(browser: Browser): Promise<Players> {
     await expect(playerA.locator('.play-stack [data-card-rank="A"]')).toBeVisible();
     await expect(playerA.locator(".hand [data-card-id]")).toHaveCount(0);
     await expect(playerB.locator(".opponent-hand .card--back")).toHaveCount(0);
-  } else if (scenario === "pickup-anytime") {
+  } else if (scenario === "pickup-own-turn") {
     await expect(playerA.locator('.play-stack [data-card-rank="8"]')).toBeVisible();
     for (const page of [playerA, playerB])
       await expect(page.locator(".hand [data-card-id]")).toHaveCount(2);
@@ -179,18 +179,22 @@ test("winner and loser receive accessible full-screen results", async ({ browser
   await players.contextB.close();
 });
 
-test("either player can pick up while Ada keeps the turn", async ({ browser }) => {
-  test.skip(scenario !== "pickup-anytime", "Different deterministic scenario");
+test("only the current player can pick up even with a legal card", async ({ browser }) => {
+  test.skip(scenario !== "pickup-own-turn", "Different deterministic scenario");
   const players = await createReadyGame(browser);
   try {
-    for (const page of [players.playerA, players.playerB])
-      await expect(page.getByRole("button", { name: "Pick up pile" })).toBeEnabled();
-    await players.playerB.getByRole("button", { name: "Pick up pile" }).click();
-    await expect(players.playerB.locator(".hand [data-card-id]")).toHaveCount(3);
-    await expect(players.playerB.locator('.hand [data-card-rank="8"]')).toBeVisible();
-    await expect(players.playerA.locator(".status-banner")).toContainText("Your turn");
+    await expect(players.playerB.getByRole("button", { name: "Pick up pile" })).toHaveCount(0);
+    await expect(players.playerB.getByRole("button", { name: "Play cards" })).toBeDisabled();
+    await expect(players.playerB.locator(".action-dock")).toContainText("Waiting for Ada.");
+    for (const page of [players.playerA, players.playerB]) await expectNoViewportOverflow(page);
+    await expect(players.playerA.getByRole("button", { name: "Pick up pile" })).toBeEnabled();
+    await players.playerA.getByRole("button", { name: "Pick up pile" }).click();
+    await expect(players.playerA.locator(".hand [data-card-id]")).toHaveCount(3);
+    await expect(players.playerA.locator('.hand [data-card-rank="8"]')).toBeVisible();
+    await expect(players.playerB.locator(".status-banner")).toContainText("Your turn");
     for (const page of [players.playerA, players.playerB]) {
       await expect(page.locator(".play-stack .pile-empty")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Pick up pile" })).toHaveCount(0);
       await expectNoViewportOverflow(page);
     }
   } finally {

@@ -269,21 +269,20 @@ describe("pickup, drawing, and endgame", () => {
     expect(next.currentTurnPlayerId).toBe("B");
     expect(next.stats.turnCount).toBe(state.stats.turnCount + 1);
     expect(next.stats.pickups.A).toBe(1);
+    expect(next.turnSeq).toBe(state.turnSeq + 1);
+    expect(next.revision).toBe(state.revision + 1);
     expect(next.lastPlay).toBeNull();
   });
 
-  it("allows off-turn pickup without consuming a turn", () => {
+  it("rejects off-turn pickup without changing state", () => {
     const state = playing([card(Rank.Ace)], [card(Rank.Three)], [card(Rank.King)]);
     state.lastPlay = { playerId: "A", cards: [...state.playPile] };
-    const next = accepted(applyCommand(state, "B", { type: "PICK_UP_PILE" }));
-    expect(next.players[1]!.hand).toEqual([...state.players[1]!.hand, ...state.playPile]);
-    expect(next.playPile).toEqual([]);
-    expect(next.currentTurnPlayerId).toBe("A");
-    expect(next.stats.turnCount).toBe(state.stats.turnCount);
-    expect(next.stats.pickups.B).toBe(1);
-    expect(next.turnSeq).toBe(state.turnSeq + 1);
-    expect(next.revision).toBe(state.revision + 1);
-    expect(next.lastPlay).toEqual(state.lastPlay);
+    const before = structuredClone(state);
+    expect(applyCommand(state, "B", { type: "PICK_UP_PILE" })).toMatchObject({
+      ok: false,
+      code: "NOT_YOUR_TURN",
+    });
+    expect(state).toEqual(before);
   });
 
   it("rejects pickups on an empty pile, outside play, and during either player's seven choice", () => {
@@ -309,12 +308,12 @@ describe("pickup, drawing, and endgame", () => {
     }
   });
 
-  it("only consumes a restriction targeting the off-turn picker", () => {
+  it("only consumes a restriction targeting the picker", () => {
     for (const targetPlayerId of ["A", "B"]) {
       const state = playing([card(Rank.Three)], undefined, [card(Rank.Seven)]);
       state.restriction = { direction: "higher", targetPlayerId };
-      const next = accepted(applyCommand(state, "B", { type: "PICK_UP_PILE" }));
-      expect(next.restriction).toEqual(targetPlayerId === "B" ? null : state.restriction);
+      const next = accepted(applyCommand(state, "A", { type: "PICK_UP_PILE" }));
+      expect(next.restriction).toEqual(targetPlayerId === "A" ? null : state.restriction);
     }
   });
 
