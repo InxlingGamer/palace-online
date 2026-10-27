@@ -2,7 +2,7 @@
 
 Living status document for the 2026 audit and overhaul. Keep it current at every checkpoint so any new chat can pick up from here. Read this first, then `README.md`, `docs/ARCHITECTURE.md`, and `docs/RULES.md`.
 
-_Last updated: 2026-10-27 — Milestones 2 and 3 are live in production (`main` @ `54bdd98`). **Milestone 4 (classic green felt redesign) is implemented and verified on `overhaul/m4-felt-redesign`; its PR is open and awaiting the owner's approval to merge.** The iPhone Home Screen web app is deferred to a later milestone._
+_Last updated: 2026-10-27 — Milestones 2, 3 and 4 are live in production (`main` @ `cb1691e`, the M4 felt redesign). Next: Milestone 5 (iPhone hand for 20+ cards). The iPhone Home Screen web app is deferred to a later milestone._
 
 ## How to resume
 
@@ -28,13 +28,14 @@ _Last updated: 2026-10-27 — Milestones 2 and 3 are live in production (`main` 
 
 ## Current state
 
-- Active branch: `overhaul/m4-felt-redesign` (from `main` @ `54bdd98`). M4 PR open against `main`, awaiting the owner's approval; **do not merge without it** (merging deploys to production).
+- No active branch or open PR. Start M5 on a new `overhaul/m5-*` branch from `main`.
+- M4 merged 2026-10-27 with the owner's explicit approval: [PR #4](https://github.com/InxlingGamer/palace-online/pull/4) → `cb1691e` (merge commit) after its CI passed. `main` CI passed (quality + browser), Render deployed at 06:52 UTC; `/healthz` OK; the live bundle (`index-OI1fLsdJ.js`, `index-C_wucYWC.css`) matches the locally verified build; `/cards/court-king.webp` serves; the main browser suite passed 6/6 against production (desktop Chromium, iPhone portrait).
 - M4 mockup, approved by the owner 2026-10-27: [Palace felt table mockup](https://claude.ai/artifact/QKGHDTgYMXbDyFfBcMiZPM), a private design canvas (only the owner can open it unless shared). Frames: desktop on your turn and with a 22-card hand; iPhone 15 Plus (Safari 430×739) on your turn, on Ben's turn and with a 22-card hand; card sheet; card component; plus a DEFERRED row (Home Screen app, icon).
 - Verification for M4: 99/99 Vitest tests (baseline 75), 4/4 typechecks, ESLint, Prettier, production build; Playwright main suite 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape) with new no-page-overflow and hidden-scrollbar checks; scenario suites 18/18. Screenshots of every screen reviewed at 1366×768, 1920×1080, iPhone portrait 430×739 and iPhone landscape (`output/audit/shots/`, local only).
 - Merged 2026-10-26 with the owner's explicit approval (merge commits, not squash): PR #1 (M2) → `edb6dbb`; PR #2 (M3) → `1ac0278`; [PR #3](https://github.com/InxlingGamer/palace-online/pull/3) (CI test fix) → `f3fafc2`. Render deployed M2 at 20:58 UTC and M3 at 22:12 UTC; `/healthz` OK; the live client bundle contains the M3 code; the main browser suite passed 6/6 against production (desktop Chromium, iPhone portrait).
 - PR #3 context: `main` CI for the M3 merge failed twice because `page.reload()` crashed the page ("Page crashed") in iPhone-emulated WebKit on GitHub's Linux runners. It's intermittent, never reproduced on Windows, and reduced motion didn't prevent it. The final-play rejoin reload check now runs only on desktop Chromium; the final-card hold is still tested on every device. That blocked the M3 deploy until PR #3 merged.
 - **GitHub runner slowness, 2026-10-26:** the `browser` job's `playwright install --with-deps` step took 10–46 min several times because `azure.archive.ubuntu.com` was crawling (packages timing out and falling back to `archive.ubuntu.com`). It isn't frozen: cancelling restarts the same slow download, so prefer waiting. One run also timed out a long-standing M2 test on a slow runner. Suggested follow-up (not done): cache Playwright browsers and/or add `timeout-minutes` to the install step so a real hang fails fast.
-- Milestones 1–3 are complete and deployed.
+- Milestones 1–4 are complete and deployed.
 - Verification for M2: 65/65 Vitest tests (3 consecutive runs), 4/4 typechecks, ESLint, Prettier; Playwright 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape) including a new simultaneous-draw test; scenario suites 9/9. The original reproduction now accepts simultaneous draws, a play racing an opponent draw, and double draws.
 - Baseline before M2: 43 unit/integration tests.
 - Verification for M3: 75/75 Vitest tests (3 consecutive runs; baseline 65), 4/4 typechecks, ESLint, Prettier, production build; Playwright main suite 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape); scenario suites 18/18 across 5 scenarios (desktop Chromium, iPhone portrait, iPhone landscape), including off-turn pickup and the final-card hold with and without reduced motion. Screenshots reviewed in `output/audit/shots/m3/` (local only).
@@ -109,7 +110,7 @@ The owner likes the design and asked for these changes:
 | 1   | Audit and prioritized findings                                      | done (approved 2026-10-26) |
 | 2   | Multiplayer reliability, server crash fixes, lifecycle timers       | done; merged and deployed  |
 | 3   | Requested rules: pick up anytime; show final card before result     | done; merged and deployed  |
-| 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; PR awaiting approval |
+| 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; merged and deployed  |
 | 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | not started                |
 | 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | approved, not started      |
 | 7   | Regression testing and final QA                                     | not started                |
@@ -157,7 +158,7 @@ The owner likes the design and asked for these changes:
 
 ## Open questions for the owner
 
-- Approve merging the M4 PR into `main` (deploys the redesign to production).
+- None pending. Ask the owner how the redesign feels on their iPhone (hand swipe, fonts, court art), since that is unverified on a real device.
 
 ## Verification status and unverified areas
 
