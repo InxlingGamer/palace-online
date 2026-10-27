@@ -20,6 +20,7 @@ import {
 } from "@palace/shared";
 import { createActionSender, shouldAcceptSnapshot } from "./action-sender";
 import { Card, CardBack } from "./cards";
+import { DeckPicker } from "./DeckPicker";
 import { Hand } from "./hand";
 import { lastMoveText, requirementText } from "./table-copy";
 import { canPickUpPile } from "./pickup";
@@ -228,6 +229,7 @@ function Lobby({
               inputMode="text"
             />
           </label>
+          <DeckPicker />
           <button className="button button--gold" disabled={busy}>
             {busy
               ? waking

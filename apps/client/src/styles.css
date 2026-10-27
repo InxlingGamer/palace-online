@@ -4,6 +4,13 @@
 @import "@fontsource/manrope/latin-800.css";
 @import "@fontsource/source-serif-4/latin-600.css";
 @import "@fontsource/source-serif-4/latin-700.css";
+@font-face {
+  font-family: "Libre Caslon Text";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./fonts/libre-caslon-text-700.ttf") format("truetype");
+}
 :root {
   --felt: #1b6141;
   --rail: #2a1910;
@@ -361,8 +368,10 @@ svg {
 }
 .deck-stack .card {
   box-shadow:
-    4px 4px 0 #cdbf9c,
-    8px 8px 0 #6b1c26,
+    3px 3px 0 #e9e3d4,
+    4px 4px 0 #b9b2a2,
+    7px 7px 0 #e9e3d4,
+    8px 8px 0 #b9b2a2,
     0 8px 16px #0005;
 }
 .deck-stack small {
@@ -602,10 +611,11 @@ svg {
   width: var(--card-w);
   height: calc(var(--card-w) * 1.4);
   padding: 0;
-  border: 1px solid var(--face-line);
-  border-radius: calc(var(--card-w) * 0.075);
-  background: var(--face);
-  color: var(--ink);
+  border: 0;
+  border-radius: calc(var(--card-w) * 0.055);
+  background: #ffffff;
+  color: #111111;
+  overflow: hidden;
   box-shadow:
     0 1px 0 #0004,
     0 4px 10px #0005;
@@ -616,146 +626,50 @@ svg {
     box-shadow 160ms;
 }
 .card--red {
-  color: var(--red);
+  color: #c8102e;
 }
-.card__corner {
-  position: absolute;
-  left: 6%;
-  top: 4%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2cqw;
-  font:
-    700 20cqw / 1 "Source Serif 4",
-    Georgia,
-    serif;
+.card[data-deck="simple"] {
+  background: #fbf6ea;
+  color: #1b1b1d;
+  border-radius: calc(var(--card-w) * 0.06);
 }
-.card[data-card-rank="10"] .card__corner {
-  font-size: 17cqw;
-  letter-spacing: -0.06em;
+.card[data-deck="simple"].card--red {
+  color: #b42318;
 }
-.card__corner svg {
-  width: 12cqw;
-  height: 12cqw;
-}
-.card__corner--bottom {
-  left: auto;
-  top: auto;
-  right: 6%;
-  bottom: 4%;
-  transform: rotate(180deg);
-}
-.card__pip {
-  position: absolute;
-  width: 17cqw;
-  height: 17cqw;
-  pointer-events: none;
-}
-.card__pip svg {
+.card__svg {
   width: 100%;
   height: 100%;
-}
-.card__pip--ace {
-  width: 46cqw;
-  height: 46cqw;
-}
-.card__court {
-  position: absolute;
-  inset: 11% 18%;
-  border: 1px solid currentColor;
-  border-radius: 3cqw;
-  background: var(--face);
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
   pointer-events: none;
 }
-.card__court img {
-  flex: 1;
-  width: 100%;
-  min-height: 0;
-  object-fit: cover;
-  object-position: 50% 0;
-}
-.card__court i {
-  height: 1px;
-  flex: none;
-  background: currentColor;
-  opacity: 0.5;
-}
-.card__court img:nth-of-type(2) {
-  transform: rotate(180deg);
-}
-.card__court svg {
-  position: absolute;
-  left: 5%;
-  top: 3%;
-  width: 12cqw;
-  height: 12cqw;
-}
-.card__court svg:last-child {
-  left: auto;
-  top: auto;
-  right: 5%;
-  bottom: 3%;
-  transform: rotate(180deg);
-}
-.card--illegal::after {
+.card::before {
   content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: rgba(12, 44, 28, 0.52);
+  box-shadow: inset 0 0 0 1px #d9d9de;
   pointer-events: none;
+  z-index: 1;
+}
+.card[data-deck="simple"]::before {
+  box-shadow: inset 0 0 0 1px #d8cdb3;
+}
+.card--illegal:not(.card--selected) {
+  filter: saturate(0.3) brightness(0.85);
+}
+/* A selected unplayable card dims its face only, so the gold selection ring stays gold. */
+.card--illegal.card--selected .card__svg {
+  filter: saturate(0.3) brightness(0.85);
+}
+@container (max-width: 33px) {
+  .card__monogram {
+    display: none;
+  }
 }
 .card--selected {
   transform: translateY(calc(var(--card-w) * -0.15));
   box-shadow:
     0 0 0 3px #e8c15a,
     0 14px 24px #0007;
-}
-.card--back {
-  background: #f4ecd8;
-  border-color: #cdbf9c;
-}
-.card__back-pattern {
-  position: absolute;
-  inset: max(3px, 6%);
-  border-radius: 4cqw;
-  background-color: #6b1c26;
-  background-image:
-    repeating-linear-gradient(45deg, #f6e8c82b 0 1px, transparent 1px 6px),
-    repeating-linear-gradient(-45deg, #f6e8c82b 0 1px, transparent 1px 6px);
-  display: grid;
-  place-items: center;
-}
-.card__back-pattern::before {
-  content: "";
-  position: absolute;
-  inset: 3.5%;
-  border: 1px solid rgba(233, 215, 168, 0.6);
-  border-radius: 3cqw;
-}
-.card__medallion {
-  display: grid;
-  place-items: center;
-  position: relative;
-  width: 36cqw;
-  height: 36cqw;
-  border: 1.5px solid #e9d7a8;
-  border-radius: 50%;
-  background: #6b1c26;
-  color: #e9d7a8;
-  font:
-    700 18cqw / 1 "Source Serif 4",
-    Georgia,
-    serif;
-}
-@container (max-width: 35px) {
-  .card__medallion {
-    display: none;
-  }
 }
 .card--dramatic {
   animation: hidden-pulse 1.6s ease-in-out infinite;
@@ -852,7 +766,7 @@ svg {
 .lobby-form label {
   font-size: 13px;
 }
-.lobby-form label span {
+.lobby-form > label > span {
   color: var(--muted);
 }
 .lobby-form input {
@@ -1154,9 +1068,7 @@ svg {
     --card-w: 24px;
     margin-left: -17px;
   }
-  .opponent-hand .card__medallion {
-    display: none;
-  }
+
   .player-label,
   .your-label {
     gap: 7px;
@@ -1730,4 +1642,159 @@ svg {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
+}
+/* Native radio inputs keep arrow-key navigation and a single tab stop per group. */
+.deck-picker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.deck-picker legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.deck-picker legend span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.deck-tiles,
+.back-swatches {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.back-swatches {
+  margin-top: 8px;
+}
+.deck-option {
+  position: relative;
+  cursor: pointer;
+  min-width: 0;
+}
+.lobby-form .deck-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  opacity: 0;
+}
+.lobby-form .deck-tile,
+.lobby-form .back-swatch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 2px solid #658573;
+  border-radius: 10px;
+  padding: 6px 10px;
+  color: var(--cream);
+  min-height: 44px;
+}
+.lobby-form .deck-tile {
+  min-height: 76px;
+  position: relative;
+}
+.deck-option input:checked + span {
+  border-color: #e3b54a;
+}
+.deck-option input:focus-visible + span {
+  outline: 3px solid #e3b54a;
+  outline-offset: 3px;
+}
+.lobby-form .deck-check {
+  display: none;
+  position: absolute;
+  right: 5px;
+  top: 5px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #e3b54a;
+  color: #1f1606;
+  text-align: center;
+  font-size: 12px;
+  line-height: 18px;
+}
+.deck-option input:checked + span .deck-check {
+  display: block;
+}
+.deck-preview {
+  display: block;
+  position: relative;
+  width: 22px;
+  height: 31px;
+  pointer-events: none;
+}
+.deck-preview .card {
+  --card-w: 22px;
+}
+.deck-preview--fan {
+  width: 58px;
+  height: 58px;
+}
+.deck-preview--fan .card {
+  --card-w: 34px;
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  transform: rotate(-12deg);
+}
+.deck-preview--fan .card + .card {
+  left: 21px;
+  top: 6px;
+  transform: rotate(12deg);
+}
+@media (max-width: 820px) and (min-height: 501px) {
+  .landing {
+    gap: 14px;
+    padding-block: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-bottom));
+  }
+  .hero h1 {
+    font-size: 38px;
+  }
+  .lobby-panel {
+    padding: 18px;
+  }
+  .lobby-panel h2 {
+    font-size: 24px;
+    margin-bottom: 14px;
+  }
+  .lobby-form {
+    gap: 12px;
+  }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .landing {
+    padding-block: 4px;
+  }
+  .lobby-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 12px;
+  }
+  .deck-picker,
+  .lobby-form > .button {
+    grid-column: 1 / -1;
+  }
+  .lobby-panel {
+    padding: 12px 16px;
+  }
+  .lobby-panel h2 {
+    font-size: 20px;
+    margin-bottom: 8px;
+  }
+  .deck-picker legend {
+    margin-bottom: 4px;
+  }
+  .lobby-form .deck-tile {
+    min-height: 66px;
+    padding-block: 2px;
+  }
+  .back-swatches {
+    margin-top: 4px;
+  }
 }

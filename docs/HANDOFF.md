@@ -164,12 +164,34 @@ Work (Codex brief, Claude review):
 3. **Icon: option E (chosen 2026-10-27).** Like the earlier fanned pair, but the front card is cream with a burgundy palace and a gold pennant, over the burgundy card back, on felt (mockup canvas artboard "M7 — Home Screen icon options").
 4. **Use the entire screen (owner, emphasised).** The app must run edge to edge, including the strip behind the clock, battery and Dynamic Island: the walnut top bar extends under the status bar, with no white or black band above it. The dock clears the home indicator. iOS always draws the clock and battery on top; web apps can't hide them, so the top bar's contents start below them via `env(safe-area-inset-top)`.
 
-### Card decks and lobby deck picker (owner request, 2026-10-27; in design)
+### Card decks and lobby deck picker (owner request, 2026-10-27; built on `overhaul/card-decks`, PR into `overhaul/next`)
 
-- The owner finds the current card faces hard to look at and wants a deck choice on the lobby screen. **Ask before choosing designs.** Round 1 (Classic, Bold, Four-colour, Noir) and the public-domain Byron Knoll deck were rejected as cluttered or badly spaced.
-- Owner answers for the main deck: traditional pip layouts with more air; large classic-serif corner indices; red and black on white; modern flat portrait courts, one original royal family on every suit; two original classic backs, red and blue, picked in the lobby; the default is the main deck. **Each player picks their own deck** (stored on their device; no rules or server change).
-- Also an original **Portal** deck (sci-fi theme, chosen instead of a Rick and Morty deck): dark faces, neon green and pink suits, portal-swirl back, courts a scientist, an alien queen and a robot. No show characters or logos.
-- Round 2 mockup: canvas artboard "Round 2 — Standard and Portal decks" (component `StdCard`); lobby picker frame "Lobby — choose your cards". Awaiting the owner's feedback.
+- The owner found the old card faces hard to look at and wanted a deck choice on the lobby screen. **Ask before choosing designs.** Rejected along the way: Claude's own canvas decks (rounds 1 and 2, including a "Portal" theme) and the public-domain Byron Knoll deck ("cluttered", "bad spacing").
+- **Approved (2026-10-27): two decks made by Codex from detailed briefs, reviewed by Claude**, as sample pages in `output/deck-samples/` (local, gitignored; `sample-deck.html` and `sample-simple.html`, with prompts in `generation-record*.json`):
+  - **Classic:** a real-deck look. Original double-headed English-pattern courts in flat red, blue, gold and black (Codex image generation), an ornate original ace of spades, original symmetrical red and blue scroll backs, traditional pip positions and **Libre Caslon Text 700** indices at natural width. The owner's one change was that the first index font (Libre Bodoni, forced into a fixed width) looked squished.
+  - **Simple:** matches the site. A cream face, Source Serif 4 indices, airy pips, aces in a thin gold ring, one set of modern flat single-headed portraits (king, queen, jack) in site colours, and SVG walnut and felt backs with a gold lattice and a "P" medallion.
+  - Claude review fixes on the samples: the "10" index is set smaller (as on real decks) so the 10s keep normal pip columns, after Codex had squeezed them into the centre. The court frames shrank only as much as the wider index needs (Classic 25% inset). The portraits are cropped to the figure. The queen was regenerated (black lips read as a moustache). An ace background box and an encoding glitch were fixed.
+- **Implementation:**
+  - `decks.ts`: deck and back preference in `localStorage` key `palace-cards`, validated, default Classic plus Red; a React context.
+  - `cards.tsx`: every card is inline SVG with viewBox 0 0 100 140, ported from the samples, with `data-deck` and `data-back` attributes.
+  - `DeckPicker.tsx`: the lobby "Your cards (only you see this)" picker, with native radio inputs (deck tiles plus back swatches) and 44 px targets.
+  - Each player sees only their own choice everywhere: hand, piles, fields, flights, the opponent's backs.
+  - Assets in `apps/client/public/cards/{classic,simple}/` were converted by Claude through Chromium's canvas: about 515 KB in total, versus about 15 MB raw. The ace is made black on transparent and the classic backs exactly mirrored. The font is in `apps/client/src/fonts/` (OFL). The M4 `court-*.webp` files were removed.
+- Claude review fixes on the build:
+  - The unplayable dim on a selected card had greyed the gold selection ring; it now dims the face only.
+  - The draw pile's stacked edge was burgundy (left from the old back); it's now neutral.
+  - The new reload-based picker test skips mobile emulation (PR #3 Linux WebKit crash).
+  - The e2e server's room-creation limit was raised (`ROOM_CREATE_LIMIT=1000` in `dev:test` only). The main suite now creates more than 20 rooms a minute, so M6 tests intermittently hit "Too many requests". Production keeps 20.
+  - `.impeccable/` (a local design-hook cache) is gitignored.
+- **Verification:**
+  - `pnpm check`: 146/146 Vitest (baseline 131).
+  - Main browser suite: 40 passed, 8 skipped (mobile reload skips). The waking, socket and deck tests ran 72/72 across three repeats.
+  - All scenario suites passed (25).
+  - Audit screenshots for both decks (`output/audit/shots-classic/`, `shots-simple/`, 121 each; `DECK=… BACK=…` env in `shots.ts`) were reviewed on desktop 1366/1920, iPhone portrait and landscape: lobby picker, table, 20- and 26-card hands at 24 px strips, courts, aces and backs.
+- Known and accepted:
+  - Each deck uses one king, queen and jack shared by all suits; per-suit figures would be a follow-up.
+  - At the opponent's tiny overlapped size, Simple backs mostly show their cream border.
+  - The Simple portraits keep very faint shading from generation.
 - **Copyright:** the exact Bicycle (Rider back, court art) and theory11 Rick and Morty artwork can't be shipped. The repo and site are public, and Claude won't download, copy or recreate that art. Offered instead: a private deck slot the owner fills once with their own scans (served only to players at their table, never committed). Not yet agreed.
 
 **Facts that shape the design:**
@@ -232,7 +254,7 @@ Work (Codex brief, Claude review):
 | 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; merged and deployed  |
 | 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | done; merged and deployed  |
 | 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | done; in `overhaul/next`   |
-| 7   | iPhone Home Screen web app (plan hosting with Render first)         | planned; decks in design   |
+| 7   | iPhone Home Screen web app (plan hosting with Render first)         | planned; decks PR open     |
 | 8   | Regression testing and final QA                                     | not started                |
 
 ## Task tracker
@@ -283,7 +305,7 @@ Work (Codex brief, Claude review):
 
 ## Open questions for the owner
 
-- Card decks: feedback on round 2 (Standard and Portal) and whether to build the private deck slot.
+- Approve merging the card-decks PR into `overhaul/next` (no deploy). Still open: whether to build the private deck slot for a deck the owner scans.
 - M7: create the free staging service in Render (settings in "Milestone 7 plan"); Claude can't do it from here.
 
 ## Verification status and unverified areas

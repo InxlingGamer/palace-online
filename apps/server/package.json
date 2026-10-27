@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "dev:test": "cross-env NODE_ENV=test PORT=3001 tsx src/index.ts",
+    "dev:test": "cross-env NODE_ENV=test PORT=3001 ROOM_CREATE_LIMIT=1000 tsx src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
