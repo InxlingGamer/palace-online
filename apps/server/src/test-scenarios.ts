@@ -5,7 +5,7 @@ export type TestGameScenario =
   | "seven-restriction"
   | "blind-pickup"
   | "finished-result"
-  | "pickup-anytime"
+  | "pickup-own-turn"
   | "final-play"
   | "big-hand";
 
@@ -65,7 +65,7 @@ export function applyTestScenario(state: GameState, scenario: TestGameScenario):
     return next;
   }
 
-  if (scenario === "pickup-anytime") {
+  if (scenario === "pickup-own-turn") {
     first.hand = [card("scenario-nine", Rank.Nine), card("scenario-four", Rank.Four)];
     second.hand = [
       card("scenario-queen", Rank.Queen, Suit.Hearts),

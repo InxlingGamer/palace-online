@@ -22,7 +22,7 @@ const schema = z.object({
       "seven-restriction",
       "blind-pickup",
       "finished-result",
-      "pickup-anytime",
+      "pickup-own-turn",
       "final-play",
       "big-hand",
     ])

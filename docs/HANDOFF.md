@@ -2,7 +2,7 @@
 
 Living status document for the 2026 audit and overhaul. Keep it current at every checkpoint so any new chat can pick up from here. Read this first, then `README.md`, `docs/ARCHITECTURE.md`, and `docs/RULES.md`.
 
-_Last updated: 2026-10-27 — Milestones 2–4 are live in production (`main` @ `cb1691e`, M4 deployed about 06:53 UTC). **Milestone 5 (iPhone hand for 20+ cards) is done and verified on `overhaul/m5-iphone-hand`; its PR awaits the owner's approval.** The owner-requested rule change (pick up the pile only on your own turn) is done on `overhaul/pickup-own-turn`, PR #6, also awaiting approval. The iPhone Home Screen web app is deferred to a later milestone._
+_Last updated: 2026-10-27 — Milestones 2–4 are live in production (M4 deployed about 06:53 UTC). The owner approved merging both pending PRs: the rule change "pick up the pile only on your own turn" ([PR #6](https://github.com/InxlingGamer/palace-online/pull/6)) merged as `0785602`, and **Milestone 5 (iPhone hand for 20+ cards, [PR #7](https://github.com/InxlingGamer/palace-online/pull/7)) is merged next**. Next up: M6 ("waking the table" cold-start screen), then M7 (iPhone Home Screen web app, plan with the owner first) and M8 (regression)._
 
 ## How to resume
 
@@ -28,7 +28,7 @@ _Last updated: 2026-10-27 — Milestones 2–4 are live in production (`main` @ 
 
 ## Current state
 
-- Active branches (both from `main` @ `cb1691e`): `overhaul/m5-iphone-hand` (M5, main checkout; PR open) and `overhaul/pickup-own-turn` (rule change, in the git worktree `../palace-pickup-own-turn`; [PR #6](https://github.com/InxlingGamer/palace-online/pull/6)). Each has its own PR; **do not merge without the owner's approval** (merging deploys to production).
+- 2026-10-27, with the owner's explicit approval: [PR #6](https://github.com/InxlingGamer/palace-online/pull/6) (pickup on your own turn) merged into `main` as `0785602`; `main` was then merged into `overhaul/m5-iphone-hand` (conflicts in the scenario list, `package.json` and this file resolved to keep both the `pickup-own-turn` rename and `big-hand`), and [PR #7](https://github.com/InxlingGamer/palace-online/pull/7) (M5) merges after its CI passes. Start M6 on a new branch from the updated `main`; **never merge without the owner's approval** (merging deploys to production).
 - M4 merged 2026-10-27 06:46 UTC with the owner's approval ([PR #4](https://github.com/InxlingGamer/palace-online/pull/4) → `cb1691e`). `main` CI passed (quality + browser) and Render deployed it at about 06:53 UTC: `/healthz` OK, the live bundle contains the M4 hand code, and `/cards/court-king.webp` is served.
 - M4 mockup, approved by the owner 2026-10-27: [Palace felt table mockup](https://claude.ai/artifact/QKGHDTgYMXbDyFfBcMiZPM), a private design canvas (only the owner can open it unless shared). Frames: desktop on your turn and with a 22-card hand; iPhone 15 Plus (Safari 430×739) on your turn, on Ben's turn and with a 22-card hand; card sheet; card component; plus a DEFERRED row (Home Screen app, icon).
 - Verification for M4: 99/99 Vitest tests (baseline 75), 4/4 typechecks, ESLint, Prettier, production build; Playwright main suite 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape) with new no-page-overflow and hidden-scrollbar checks; scenario suites 18/18. Screenshots of every screen reviewed at 1366×768, 1920×1080, iPhone portrait 430×739 and iPhone landscape (`output/audit/shots/`, local only).
@@ -97,9 +97,12 @@ The owner likes the design and asked for these changes:
 
 ### Rule change: pick up only on your own turn (owner, 2026-10-27)
 
-The owner revised the M3 pickup rule: "you should ONLY be able to pick up the pile when it is your turn but you can do it on ANY turn." Interpretation being implemented: `PICK_UP_PILE` requires your turn (off-turn returns `NOT_YOUR_TURN`), but it is allowed on any of your turns, even when you hold a legal card. Unchanged: it ends your turn, it is blocked while a seven direction choice is pending, and it consumes a seven restriction targeting you. The client shows "Pick up pile" only on your turn. Scenario `pickup-anytime` becomes `pickup-own-turn`. It ships as its own PR, separate from M5.
+The owner revised the M3 pickup rule: "you should ONLY be able to pick up the pile when it is your turn but you can do it on ANY turn." Implemented interpretation: `PICK_UP_PILE` requires your turn (off-turn returns `NOT_YOUR_TURN`), but it is allowed on any of your turns, even when you hold a legal card. Unchanged: it ends your turn, it is blocked while a seven direction choice is pending, and it consumes a seven restriction targeting you. The client shows "Pick up pile" only on your turn. Scenario `pickup-anytime` becomes `pickup-own-turn`. Shipped as its own PR ([#6](https://github.com/InxlingGamer/palace-online/pull/6), merged `0785602`), separate from M5.
 
-## Milestone 5 plan (in progress)
+- Engine: `applyCommand` no longer exempts `PICK_UP_PILE` from the turn check; `applyPickup` always passes the turn. Client: `canPickUpPile` requires your turn. Server needs no change (the `expectedTurn` check already covers pickup).
+- Verification (Claude, 2026-10-27): 101/101 Vitest tests (baseline 99), 4/4 typechecks, ESLint, Prettier on changed files; `pickup-own-turn` browser scenario 3/3 (desktop Chromium, iPhone portrait, iPhone landscape); screenshots of both docks reviewed (off-turn: only a disabled full-width "Play cards" and "Waiting for Ada."; own turn with a legal 9: "Pick up pile" next to Play). GitHub CI passed.
+
+## Milestone 5 plan (done)
 
 M4 already fits the hand to its row (24 px minimum strip on iPhone, about 16 cards) with hidden scrollbars, and swipes only beyond that. Baseline on `main` @ `cb1691e` (audit harness, iPhone 430×739): 26 cards → 24 px strips with 11 cards off-screen until swiped; no page overflow; the hand ends exactly at the dock top (614 px).
 
@@ -117,7 +120,7 @@ Work (Codex brief, Claude review):
 - A rAF-throttled scroll handler that doesn't re-render the cards.
 - A `big-hand` test scenario (26 cards) with browser tests on desktop Chromium, iPhone portrait and landscape, including a real CDP touch swipe in mobile-emulated Chromium and a rough frame-time guard.
 
-### M5 implementation (2026-10-27, done; PR awaiting approval)
+### M5 implementation (2026-10-27, done; merge approved by the owner)
 
 - Codex implemented it as briefed: `hand-gesture.ts` (`isTap`, `selectedVisibility`, thresholds `TAP_DISTANCE` 10, `TAP_SCROLL_DELTA` 2, `GLIDE_IDLE_MS` 80, `MIN_VISIBLE_STRIP` 12), `hand.tsx` (passive pointer listeners on the scroll box, capture-phase click guard for touch/pen only, `contextmenu` blocked, rAF-throttled edge/badge state, `.hand-selected--left/right` badge buttons, nudge on select), `.game-shell` `touch-action: manipulation` + no text selection, `-webkit-touch-callout: none` on the hand. Landscape now also uses the 24 px minimum strip (it inherited 22). Scenario `big-hand` (26 cards, 52 distinct physical cards); the scenario config runs it on iPhone portrait at 430×739.
 - Codex's sandbox could not start Vitest or Playwright (`spawn EPERM`); Claude ran everything.
@@ -126,7 +129,7 @@ Work (Codex brief, Claude review):
 - Audit harness (`output/audit/shots.ts`, local) gained shots 22–25: 26-card hand with the 8s selected, swiped to each end, and the 2s selected and swiped away (badge). Measurements: page overflow 0 on every screen; hand bottom never below the dock top (iPhone 614/614, landscape 314/314); iPhone portrait 430×739 at 26 cards: 24 px strips, swipe range 276 px; landscape 814×380: 24 px, range 306 px; desktop 1366 and 1920: 26 cards fit (46 / 67 px strips), no scroll, no badge.
 - Final verification: `pnpm check` (Prettier, ESLint, 4/4 typechecks, 104/104 Vitest — baseline 99, production build); main browser suite 12/12; all six scenario suites 25/25 (`big-hand` 7/7 three runs in a row after the fixes; the CDP touch-swipe and frame-time test runs on Chromium only, p95 frame < 50 ms).
 - Unverified (no real device): how the free glide and the 80 ms glide window feel under a real finger, Safari's edge-swipe back gesture near the hand's left edge, and performance on the real A16 GPU. Playwright WebKit cannot synthesise native touch scrolling; the swipe guard is tested with dispatched pointer events there and with a real CDP touch swipe in mobile Chromium.
-- Merge note: PR #6 (pickup rule) renames scenario `pickup-anytime` → `pickup-own-turn` in the same lines this branch edits (`config.ts`, `test-scenarios.ts`, root `package.json`) and both edit this file. Whichever merges second needs `main` merged in and those conflicts resolved (keep both: the rename and `big-hand`).
+- Merge: PR #6 merged first; `main` was merged into this branch and the conflicts (scenario list in `config.ts` and `test-scenarios.ts`, root `package.json`, this file) resolved to keep both the `pickup-own-turn` rename and `big-hand`. Checks were rerun on the merged branch before PR #7 merged.
 - Windows note: switching branches with `core.autocrlf=true` rewrites some files with CRLF and Prettier then flags them; `corepack pnpm exec prettier --write <files>` restores LF with no content diff.
 
 ## After Milestone 3
@@ -148,7 +151,7 @@ Work (Codex brief, Claude review):
 | 2   | Multiplayer reliability, server crash fixes, lifecycle timers       | done; merged and deployed  |
 | 3   | Requested rules: pick up anytime; show final card before result     | done; merged and deployed  |
 | 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; merged and deployed  |
-| 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | done; PR awaiting approval |
+| 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | done; merge approved       |
 | 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | approved, not started      |
 | 7   | iPhone Home Screen web app (plan hosting with Render first)         | not started; needs plan    |
 | 8   | Regression testing and final QA                                     | not started                |
@@ -199,7 +202,7 @@ Work (Codex brief, Claude review):
 
 ## Open questions for the owner
 
-- Approve merging the M5 PR (iPhone hand) and PR #6 (pickup only on your own turn) into `main`; each merge deploys to production.
+- M6 (cold-start screen) is approved and next; no open questions yet.
 - M7 (Home Screen web app): details and hosting (stay on Render or switch) to be decided with the owner when M7 starts.
 
 ## Verification status and unverified areas
