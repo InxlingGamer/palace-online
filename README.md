@@ -113,7 +113,7 @@ The server owns the deck, hands, turns, legality, drawing, burns, phase changes,
 
 ## Sound and visual assets
 
-Cards and felt are original HTML/CSS using Unicode suit symbols; no card-art package or copyrighted imagery is included. Sounds are generated at runtime with the Web Audio API from original oscillator envelopes, so there are no third-party audio files or licenses. Sound begins only after a user interaction and the mute preference is saved locally.
+Cards use inline SVG suits and two original decks: Classic and Simple. Choose your deck and back under "Your cards" in the lobby; the choice saves on your device and changes only your view. Court, ace and Classic back artwork was generated for this project with Codex image generation. Classic indices use the bundled OFL Libre Caslon Text font; Simple uses Source Serif 4. See `apps/client/public/cards/README.md` for artwork and font details. Sounds are generated at runtime with the Web Audio API from original oscillator envelopes, so there are no third-party audio files or licenses. Sound begins only after a user interaction and the mute preference is saved locally.
 
 ## Known limitations and future ideas
 

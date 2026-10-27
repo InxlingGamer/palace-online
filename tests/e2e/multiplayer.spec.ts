@@ -387,3 +387,91 @@ test("reload progress reports a waking server and recovers", async ({ page }) =>
   release = true;
   await expect(page.locator(".connection--connected")).toBeVisible();
 });
+
+test("card choices persist and affect only this player's cards", async ({ page, browser }) => {
+  // Mobile-emulated WebKit on Linux CI intermittently crashes on reload (PR #3); desktop WebKit covers it.
+  test.skip(Boolean(test.info().project.use.isMobile), "reload crashes mobile WebKit on Linux CI");
+  await page.goto("/");
+  await expect(page.getByRole("radio", { name: "Classic", exact: true })).toBeChecked();
+  await expect(page.getByRole("radio", { name: "Red", exact: true })).toBeChecked();
+  // Exercise native radio keyboard navigation as well as touch/click labels.
+  await page.getByRole("radio", { name: "Classic", exact: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("radio", { name: "Simple", exact: true })).toBeChecked();
+  await page.getByText("Felt", { exact: true }).click();
+  await expect(page.getByRole("radio", { name: "Felt", exact: true })).toBeChecked();
+  await page.reload();
+  await expect(page.getByRole("radio", { name: "Simple", exact: true })).toBeChecked();
+  await expect(page.getByRole("radio", { name: "Felt", exact: true })).toBeChecked();
+  const viewport = page.viewportSize()!;
+  const panel = await page.locator(".lobby-panel").boundingBox();
+  expect(panel).not.toBeNull();
+  expect(panel!.y).toBeGreaterThanOrEqual(0);
+  expect(panel!.y + panel!.height).toBeLessThanOrEqual(viewport.height);
+  await expect(page.getByRole("button", { name: "Create room" })).toBeInViewport();
+  expect(
+    await page.evaluate(() => ({
+      horizontal: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      vertical: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+    })),
+  ).toEqual({ horizontal: 0, vertical: 0 });
+  await page.getByLabel("Display name").fill("Ada");
+  await page.getByRole("button", { name: "Create room" }).click();
+  const invitation = page.getByRole("button", { name: /Copy invitation/ });
+  await expect(invitation).toBeVisible();
+  const code = (await invitation.getAttribute("aria-label"))!.match(/[A-HJ-NP-Z2-9]{6}/)![0];
+  const otherContext = await browser.newContext();
+  try {
+    const other = await otherContext.newPage();
+    await other.goto(`/room/${code}`);
+    await other.getByLabel("Display name").fill("Ben");
+    await other.getByRole("button", { name: "Join room" }).click();
+    await expect(page.getByText("Ben", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "I'm ready" }).click();
+    await other.getByRole("button", { name: "I'm ready" }).click();
+    await expect(page.locator('.hand .card[data-deck="simple"]')).toHaveCount(6);
+    await expect(page.locator('.field-row--you .card--back[data-back="felt"]')).toHaveCount(3);
+    await expect(page.locator('.opponent-hand .card--back[data-back="felt"]')).toHaveCount(6);
+    await expect(page.locator('.deck-stack .card--back[data-back="felt"]').first()).toBeVisible();
+    await expect(other.locator('.hand .card[data-deck="classic"]')).toHaveCount(6);
+    await expect(other.locator('.field-row--you .card--back[data-back="red"]')).toHaveCount(3);
+    await page.reload();
+    await expect(page.locator('.hand .card[data-deck="simple"]')).toHaveCount(6);
+    await expect(page.locator('.field-row--you .card--back[data-back="felt"]')).toHaveCount(3);
+    await page.goto("/");
+    await expect(page.getByRole("radio", { name: "Simple", exact: true })).toBeChecked();
+    await expect(page.getByRole("radio", { name: "Felt", exact: true })).toBeChecked();
+  } finally {
+    await otherContext.close();
+  }
+});
+
+test("deck picker fits the approved portrait and landscape lobby sizes", async ({ page }) => {
+  for (const viewport of [
+    { width: 430, height: 739 },
+    { width: 932, height: 430 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    for (const selector of [".hero", ".lobby-panel", ".deck-picker", ".lobby-form > .button"]) {
+      const box = await page.locator(selector).boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+    }
+    for (const option of await page.locator(".deck-tile, .back-swatch").all()) {
+      const box = await option.boundingBox();
+      expect(box!.width).toBeGreaterThanOrEqual(44);
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <= innerWidth &&
+          document.documentElement.scrollHeight <= innerHeight,
+      ),
+    ).toBe(true);
+  }
+});
