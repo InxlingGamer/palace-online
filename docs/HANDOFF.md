@@ -161,8 +161,16 @@ Work (Codex brief, Claude review):
 
 1. **Test on a free staging site.** A second free Render web service auto-deploys `overhaul/next`. The owner installs and tests the app from there; production stays untouched until M8. The owner creates it once in the Render dashboard (settings below).
 2. **Rejoin automatically.** iOS relaunches a Home Screen app at its start page, not the table. On launch, if the last table still exists, go straight into it; otherwise show the lobby with the name filled in and a short note that the table ended.
-3. **New icon.** Four options are on the mockup canvas (artboard "M7 — Home Screen icon options"): A fanned pair (the earlier mockup), B card back, C monogram, D palace. **The owner picks one before implementation.**
+3. **Icon: option E (chosen 2026-10-27).** Like the earlier fanned pair, but the front card is cream with a burgundy palace and a gold pennant, over the burgundy card back, on felt (mockup canvas artboard "M7 — Home Screen icon options").
 4. **Use the entire screen (owner, emphasised).** The app must run edge to edge, including the strip behind the clock, battery and Dynamic Island: the walnut top bar extends under the status bar, with no white or black band above it. The dock clears the home indicator. iOS always draws the clock and battery on top; web apps can't hide them, so the top bar's contents start below them via `env(safe-area-inset-top)`.
+
+### Card decks and lobby deck picker (owner request, 2026-10-27; in design)
+
+- The owner finds the current card faces hard to look at and wants a deck choice on the lobby screen. **Ask before choosing designs.** Round 1 (Classic, Bold, Four-colour, Noir) and the public-domain Byron Knoll deck were rejected as cluttered or badly spaced.
+- Owner answers for the main deck: traditional pip layouts with more air; large classic-serif corner indices; red and black on white; modern flat portrait courts, one original royal family on every suit; two original classic backs, red and blue, picked in the lobby; the default is the main deck. **Each player picks their own deck** (stored on their device; no rules or server change).
+- Also an original **Portal** deck (sci-fi theme, chosen instead of a Rick and Morty deck): dark faces, neon green and pink suits, portal-swirl back, courts a scientist, an alien queen and a robot. No show characters or logos.
+- Round 2 mockup: canvas artboard "Round 2 — Standard and Portal decks" (component `StdCard`); lobby picker frame "Lobby — choose your cards". Awaiting the owner's feedback.
+- **Copyright:** the exact Bicycle (Rider back, court art) and theory11 Rick and Morty artwork can't be shipped. The repo and site are public, and Claude won't download, copy or recreate that art. Offered instead: a private deck slot the owner fills once with their own scans (served only to players at their table, never committed). Not yet agreed.
 
 **Facts that shape the design:**
 
@@ -224,7 +232,7 @@ Work (Codex brief, Claude review):
 | 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; merged and deployed  |
 | 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | done; merged and deployed  |
 | 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | done; in `overhaul/next`   |
-| 7   | iPhone Home Screen web app (plan hosting with Render first)         | planned; icon pick pending |
+| 7   | iPhone Home Screen web app (plan hosting with Render first)         | planned; decks in design   |
 | 8   | Regression testing and final QA                                     | not started                |
 
 ## Task tracker
@@ -275,7 +283,7 @@ Work (Codex brief, Claude review):
 
 ## Open questions for the owner
 
-- M7: pick the Home Screen icon (A–D on the mockup canvas, artboard "M7 — Home Screen icon options").
+- Card decks: feedback on round 2 (Standard and Portal) and whether to build the private deck slot.
 - M7: create the free staging service in Render (settings in "Milestone 7 plan"); Claude can't do it from here.
 
 ## Verification status and unverified areas
