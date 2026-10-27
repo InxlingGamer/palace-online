@@ -1,4 +1,7 @@
 import type { AddressInfo } from "node:net";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { io as createClient, type Socket } from "socket.io-client";
 import request from "supertest";
@@ -528,10 +531,56 @@ describe("process health", () => {
       status: "ok",
       uptime: expect.any(Number),
       bootId: expect.any(String),
+      buildId: null,
     });
     expect(first.body.bootId).toMatch(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/);
     expect(second.body.bootId).toBe(first.body.bootId);
     expect(second.body.uptime).toBeGreaterThanOrEqual(first.body.uptime as number);
     expect(first.headers["cache-control"]).toBe("no-store");
+  });
+});
+
+describe("production app shell", () => {
+  it("marks shell responses, disables worker caching, types the manifest and reports the build", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "palace-static-"));
+    try {
+      await Promise.all([
+        writeFile(path.join(directory, "index.html"), '<div id="root"></div>'),
+        writeFile(path.join(directory, "sw.js"), "/* worker */"),
+        writeFile(path.join(directory, "manifest.webmanifest"), "{}"),
+        writeFile(path.join(directory, "build.json"), JSON.stringify({ buildId: "test-build" })),
+      ]);
+      const runtime = createRuntime(testConfig, { clientDirectory: directory });
+      runtimes.push(runtime);
+      for (const url of ["/", "/room/ABC234", "/index.html"]) {
+        const response = await request(runtime.app).get(url).expect(200);
+        expect(response.headers["x-palace-app"]).toBe("1");
+        expect(response.headers["cache-control"]).toBe("no-cache");
+      }
+      const worker = await request(runtime.app).get("/sw.js").expect(200);
+      expect(worker.headers["cache-control"]).toBe("no-cache");
+      expect(worker.headers["x-palace-app"]).toBe("1");
+      const manifest = await request(runtime.app).get("/manifest.webmanifest").expect(200);
+      expect(manifest.headers["content-type"]).toContain("application/manifest+json");
+      const health = await request(runtime.app).get("/healthz").expect(200);
+      expect(health.body.buildId).toBe("test-build");
+      expect(health.headers["cache-control"]).toBe("no-store");
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+  it("tolerates a missing or malformed build identity", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "palace-static-"));
+    try {
+      for (const body of [null, "{bad", '{"buildId":123}']) {
+        if (body) await writeFile(path.join(directory, "build.json"), body);
+        const runtime = createRuntime(testConfig, { clientDirectory: directory });
+        runtimes.push(runtime);
+        const health = await request(runtime.app).get("/healthz").expect(200);
+        expect(health.body.buildId).toBeNull();
+      }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 });

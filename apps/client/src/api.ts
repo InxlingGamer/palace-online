@@ -1,3 +1,4 @@
+import { loadSaved, saveSaved } from "./storage";
 import { WAKING_DELAY_MS, WAKING_FAILURE } from "./server-wake";
 
 export class ServerWakingError extends Error {
@@ -66,7 +67,7 @@ export async function api<T>(
 const roomBootIds = new Map<string, string>();
 export function storedBootId(roomCode: string): string | null {
   try {
-    return sessionStorage.getItem(`palace-boot-${roomCode}`) ?? roomBootIds.get(roomCode) ?? null;
+    return loadSaved(`palace-boot-${roomCode}`) ?? roomBootIds.get(roomCode) ?? null;
   } catch {
     return roomBootIds.get(roomCode) ?? null;
   }
@@ -89,7 +90,7 @@ export async function rememberBootId(roomCode: string): Promise<void> {
   if (!bootId) return;
   roomBootIds.set(roomCode, bootId);
   try {
-    sessionStorage.setItem(`palace-boot-${roomCode}`, bootId);
+    saveSaved(`palace-boot-${roomCode}`, bootId);
   } catch {
     /* Keep the in-memory identity if storage is unavailable. */
   }

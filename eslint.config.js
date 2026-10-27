@@ -25,6 +25,11 @@ export default tseslint.config(
     },
   },
   {
+    files: ["scripts/*.mjs"],
+    ...tseslint.configs.disableTypeChecked,
+    languageOptions: { parserOptions: { projectService: false }, globals: { Image: "readonly" } },
+  },
+  {
     files: ["apps/client/**/*.{ts,tsx}"],
     plugins: { "react-hooks": reactHooks, "react-refresh": reactRefresh },
     rules: {

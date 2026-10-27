@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, overhaul/next]
   pull_request:
 
 jobs:
@@ -54,3 +54,4 @@ jobs:
       - run: pnpm test:e2e:full
         env:
           TEST_SHUFFLE_SEED: github-actions
+      - run: pnpm test:e2e:pwa
