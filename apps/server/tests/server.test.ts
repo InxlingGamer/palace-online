@@ -517,3 +517,21 @@ describe("Socket.IO synchronization", () => {
     expect(stale).toMatchObject({ accepted: true });
   });
 });
+
+describe("process health", () => {
+  it("returns a stable per-process boot identity and uptime without caching", async () => {
+    const runtime = createRuntime(testConfig);
+    runtimes.push(runtime);
+    const first = await request(runtime.app).get("/healthz").expect(200);
+    const second = await request(runtime.app).get("/healthz").expect(200);
+    expect(first.body).toEqual({
+      status: "ok",
+      uptime: expect.any(Number),
+      bootId: expect.any(String),
+    });
+    expect(first.body.bootId).toMatch(/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/);
+    expect(second.body.bootId).toBe(first.body.bootId);
+    expect(second.body.uptime).toBeGreaterThanOrEqual(first.body.uptime as number);
+    expect(first.headers["cache-control"]).toBe("no-store");
+  });
+});

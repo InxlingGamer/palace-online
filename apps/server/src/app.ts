@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import path from "node:path";
 import { parse as parseCookie } from "cookie";
@@ -10,6 +11,8 @@ import { Server } from "socket.io";
 import { actionEnvelopeSchema, displayNameSchema, roomCodeSchema } from "@palace/shared";
 import type { ServerConfig } from "./config.js";
 import { RoomStore, seededRandom } from "./room-store.js";
+
+const bootId = randomUUID();
 
 const COOKIE_NAME = "palace_session";
 
@@ -66,7 +69,8 @@ export function createRuntime(config: ServerConfig) {
   });
 
   app.get("/healthz", (_request, response) => {
-    response.json({ status: "ok", uptime: Math.round(process.uptime()) });
+    response.set("Cache-Control", "no-store");
+    response.json({ status: "ok", uptime: Math.round(process.uptime()), bootId });
   });
 
   app.post("/api/rooms", createLimiter, (request, response) => {

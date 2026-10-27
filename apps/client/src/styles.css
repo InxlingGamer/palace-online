@@ -897,6 +897,13 @@ svg {
   font-size: 13px;
 }
 .connection-notice {
+  width: max-content;
+  display: grid;
+  gap: 4px;
+  text-align: center;
+  white-space: normal;
+  border-color: var(--gold);
+  font-family: "Manrope", sans-serif;
   top: calc(72px + env(safe-area-inset-top));
 }
 .toast {
@@ -1708,4 +1715,19 @@ svg {
     transform: rotate(var(--confetti-rotation));
     opacity: 0.45;
   }
+}
+
+.connection-notice span {
+  font-weight: 700;
+}
+.connection-notice small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.lobby-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
 }

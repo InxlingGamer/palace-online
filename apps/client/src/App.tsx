@@ -28,6 +28,9 @@ import { ResultOverlay, SevenRestrictionAlert } from "./feedback";
 import { restrictionForViewer } from "./restriction";
 import { deriveVisualEvents } from "./visual-events";
 
+import { api, currentBootId, rememberBootId, storedBootId, ServerWakingError } from "./api";
+import { serverRestarted, wakingBanner, WAKING_DELAY_MS } from "./server-wake";
+
 const rankValue = new Map<Rank, number>(NORMAL_RANKS.map((rank, index) => [rank, index]));
 const handRanks = [Rank.Two, ...NORMAL_RANKS] as const;
 const handRankValue = new Map<Rank, number>(handRanks.map((rank, index) => [rank, index]));
@@ -53,17 +56,6 @@ interface CardFlight {
 
 function roomFromPath(): string | null {
   return /^\/room\/([A-Z2-9]{6})$/i.exec(window.location.pathname)?.[1]?.toUpperCase() ?? null;
-}
-
-async function api<T>(url: string, init: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...init.headers },
-    credentials: "include",
-  });
-  const body = (await response.json()) as T & { error?: { message: string } };
-  if (!response.ok) throw new Error(body.error?.message ?? "Request failed.");
-  return body;
 }
 
 function FlightLayer({ flights }: { flights: CardFlight[] }) {
@@ -158,24 +150,30 @@ function isLegal(state: PublicGameState, rank: Rank): boolean {
 function Lobby({
   initialCode,
   onEnter,
+  notice,
 }: {
   initialCode: string;
+  notice: string;
   onEnter: (state: PublicGameState) => void;
 }) {
   const [name, setName] = useState("");
   const [code, setCode] = useState(initialCode);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [waking, setWaking] = useState(false);
 
   const submit = async (mode: "create" | "join", event: FormEvent) => {
     event.preventDefault();
     setError("");
     setBusy(true);
+    setWaking(false);
     try {
       const result = await api<{ roomCode: string; state: PublicGameState }>(
         mode === "create" ? "/api/rooms" : `/api/rooms/${code.toUpperCase()}/join`,
         { method: "POST", body: JSON.stringify({ name }) },
+        () => setWaking(true),
       );
+      await rememberBootId(result.roomCode);
       window.history.pushState({}, "", `/room/${result.roomCode}`);
       onEnter(result.state);
     } catch (reason) {
@@ -231,9 +229,27 @@ function Lobby({
             />
           </label>
           <button className="button button--gold" disabled={busy}>
-            {busy ? (code ? "Joining…" : "Creating…") : code ? "Join room" : "Create room"}
+            {busy
+              ? waking
+                ? "Waking the table…"
+                : code
+                  ? "Joining…"
+                  : "Creating…"
+              : code
+                ? "Join room"
+                : "Create room"}
           </button>
         </form>
+        {busy && waking && (
+          <p className="lobby-hint">
+            The server naps after 15 quiet minutes. This can take about a minute.
+          </p>
+        )}
+        {notice && (
+          <p className="lobby-hint" role="status">
+            {notice}
+          </p>
+        )}
         {error && (
           <p className="error" role="alert">
             {error}
@@ -248,6 +264,11 @@ export function App() {
   const initialRoom = useMemo(roomFromPath, []);
   const [state, setState] = useState<PublicGameState | null>(null);
   const [loadingRoom, setLoadingRoom] = useState(Boolean(initialRoom));
+  const [loadingWaking, setLoadingWaking] = useState(false);
+  const [restarted, setRestarted] = useState(false);
+  const [online, setOnline] = useState(navigator.onLine);
+  const [unreachableSince, setUnreachableSince] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now);
   const [selected, setSelected] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
@@ -281,24 +302,37 @@ export function App() {
     socketRef.current?.disconnect();
     const socket = io({ auth: { roomCode }, withCredentials: true });
     socketRef.current = socket;
+    setRestarted(false);
+    const unreachable = (retrying: boolean) => {
+      setConnection(retrying ? "reconnecting" : "offline");
+      setUnreachableSince((since) => since ?? Date.now());
+    };
+    setUnreachableSince(Date.now());
     setConnection("reconnecting");
-    socket.on("connect", () => setConnection("connected"));
-    socket.on("disconnect", (reason) =>
-      setConnection(reason === "io server disconnect" ? "offline" : "reconnecting"),
-    );
+    socket.on("connect", () => {
+      setConnection("connected");
+      setUnreachableSince(null);
+    });
+    socket.on("disconnect", (reason) => unreachable(reason !== "io server disconnect"));
     socket.on("connect_error", (error) => {
-      setConnection("offline");
+      unreachable(socket.active);
       // The server no longer knows this seat (restart, cleanup, or revoked session): stop retrying.
       if (error.message !== "Invalid room session") return;
       socket.disconnect();
-      setState(
-        (current) =>
-          current && {
-            ...current,
-            phase: "expired",
-            message: "This table is no longer available.",
-          },
-      );
+      const stored = storedBootId(roomCode);
+      // Decide the copy before showing the overlay so it never flips from "expired" to "closed".
+      void currentBootId().then((bootId) => {
+        if (socketRef.current !== socket) return;
+        setRestarted(serverRestarted(stored, bootId));
+        setState(
+          (current) =>
+            current && {
+              ...current,
+              phase: "expired",
+              message: "This table is no longer available.",
+            },
+        );
+      });
     });
     socket.io.on("reconnect_failed", () => setConnection("offline"));
     socket.on("state:snapshot", (snapshot: PublicGameState) => {
@@ -313,15 +347,62 @@ export function App() {
 
   useEffect(() => {
     if (!initialRoom) return;
-    void api<{ state: PublicGameState }>(`/api/rooms/${initialRoom}/reconnect`, { method: "POST" })
-      .then(({ state: restored }) => {
+    let active = true;
+    void api<{ state: PublicGameState }>(
+      `/api/rooms/${initialRoom}/reconnect`,
+      { method: "POST" },
+      () => {
+        if (active) setLoadingWaking(true);
+      },
+    )
+      .then(async ({ state: restored }) => {
+        await rememberBootId(initialRoom);
+        if (!active) return;
         snapshotRef.current = restored;
         setState(restored);
         connect(initialRoom);
       })
-      .catch(() => setNotice("That saved room session has expired. Create or join another room."))
-      .finally(() => setLoadingRoom(false));
+      .catch(async (reason: unknown) => {
+        if (reason instanceof ServerWakingError) {
+          if (active) setNotice(reason.message);
+          return;
+        }
+        const stored = storedBootId(initialRoom);
+        const current = await currentBootId();
+        if (active)
+          setNotice(
+            serverRestarted(stored, current)
+              ? "Your last table closed while the server was asleep. Create or join a new one."
+              : "That saved room session has expired. Create or join another room.",
+          );
+      })
+      .finally(() => {
+        if (active) setLoadingRoom(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [connect, initialRoom]);
+
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (unreachableSince === null) return;
+    setNow(Date.now());
+    const timer = window.setTimeout(
+      () => setNow(Date.now()),
+      Math.max(0, unreachableSince + WAKING_DELAY_MS + 1 - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [unreachableSince]);
 
   useEffect(() => {
     if (!state) return;
@@ -507,10 +588,10 @@ export function App() {
   };
 
   useEffect(() => {
-    if (!notice) return;
+    if (!notice || !state) return;
     const timer = window.setTimeout(() => setNotice(""), 4000);
     return () => window.clearTimeout(timer);
-  }, [notice]);
+  }, [notice, state]);
 
   useEffect(() => {
     if (state?.phase === "finished" || state?.phase === "expired") setNotice("");
@@ -522,10 +603,18 @@ export function App() {
         <div className="brand-mark">
           <b>P</b>
         </div>
-        <p>Reconnecting…</p>
+        <p role="status">{loadingWaking ? "Waking the table…" : "Reconnecting…"}</p>
       </main>
     );
-  if (!state) return <Lobby initialCode={initialRoom ?? ""} onEnter={enter} />;
+  if (!state) return <Lobby initialCode={initialRoom ?? ""} onEnter={enter} notice={notice} />;
+
+  const banner = wakingBanner(
+    connection === "connected",
+    unreachableSince,
+    now,
+    online,
+    connection !== "offline",
+  );
 
   const yourTurn = state.currentTurnPlayerId === state.you.id;
   const pendingSeven = state.pendingSevenChoiceFor === state.you.id;
@@ -628,13 +717,24 @@ export function App() {
         </div>
       </header>
 
-      {connection !== "connected" && state.phase !== "expired" && (
+      {banner !== "hidden" && state.phase !== "expired" && (
         <button
           className="connection-notice"
           role="status"
           onClick={() => socketRef.current?.connect()}
         >
-          {connection === "offline" ? "Offline — tap to retry" : "Reconnecting…"}
+          <span>
+            {banner === "offline"
+              ? "You're offline. Waiting for a connection…"
+              : banner === "stopped"
+                ? "Disconnected. Tap to reconnect"
+                : banner === "waking"
+                  ? "Waking the table…"
+                  : "Reconnecting…"}
+          </span>
+          {banner === "waking" && (
+            <small>The server naps after 15 quiet minutes. This can take about a minute.</small>
+          )}
         </button>
       )}
       <section className="table" aria-label="Palace card table">
@@ -906,8 +1006,12 @@ export function App() {
         {state.phase === "expired" && (
           <>
             <div>
-              <b>Room expired</b>
-              <span>The table could not be restored.</span>
+              <b>{restarted ? "Table closed" : "Room expired"}</b>
+              <span>
+                {restarted
+                  ? "The server restarted while the table was quiet, so this game ended. Start a new table from home."
+                  : "The table could not be restored."}
+              </span>
             </div>
             <button
               className="button button--gold"
