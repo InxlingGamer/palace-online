@@ -2,7 +2,7 @@
 
 Living status document for the 2026 audit and overhaul. Keep it current at every checkpoint so any new chat can pick up from here. Read this first, then `README.md`, `docs/ARCHITECTURE.md`, and `docs/RULES.md`.
 
-_Last updated: 2026-10-27 — Milestones 2–5 and the "pick up only on your own turn" rule change are live in production (`main` @ `a3369df`, deployed 18:42 UTC). **M6 (faster CI, waking-the-table feedback) is merged into the integration branch `overhaul/next`** ([PR #8](https://github.com/InxlingGamer/palace-online/pull/8) → `1896132`, owner-approved; not deployed). Branch rule: milestone PRs target `overhaul/next`, which goes to `main` (and production) once, after M8. Next up: **M7 (iPhone Home Screen web app): plan it with the owner before any code**, then M8 (regression)._
+_Last updated: 2026-10-27 — Milestones 2–5 and the "pick up only on your own turn" rule change are live in production (`main` @ `a3369df`, deployed 18:42 UTC). **M6 (faster CI, waking-the-table feedback) is merged into the integration branch `overhaul/next`** ([PR #8](https://github.com/InxlingGamer/palace-online/pull/8) → `1896132`, owner-approved; not deployed). Branch rule: milestone PRs target `overhaul/next`, which goes to `main` (and production) once, after M8. Next up: **M7 (iPhone Home Screen web app)**: planned (staging site, auto-rejoin, full screen behind the status bar); waiting on the owner's icon pick and the staging service. Then M8 (regression)._
 
 ## How to resume
 
@@ -155,6 +155,54 @@ Work (Codex brief, Claude review):
 - Verification: `pnpm check` (131/131 Vitest, baseline 106); main browser suite 34 passed, 6 skipped (reload tests on the two mobile projects); all scenario suites passed (25). Screenshots of the waking banner and lobby on desktop Chromium/WebKit, iPhone portrait and landscape reviewed (`output/audit/shots/m6/`, local). On iPhone portrait the two-line banner temporarily covers the opponent's seat plate; it only shows while the server is unreachable.
 - Not verified: a real Render sleep and wake (what Socket.IO's polling requests actually receive from Render while waking, and how long iOS Safari keeps a backgrounded page's socket). Check on the next natural cold start: leave a table idle for 20+ minutes on the iPhone and come back.
 
+## Milestone 7 plan: iPhone Home Screen web app (planning, branch `overhaul/m7-home-screen`)
+
+**Owner decisions (2026-10-27):**
+
+1. **Test on a free staging site.** A second free Render web service auto-deploys `overhaul/next`. The owner installs and tests the app from there; production stays untouched until M8. The owner creates it once in the Render dashboard (settings below).
+2. **Rejoin automatically.** iOS relaunches a Home Screen app at its start page, not the table. On launch, if the last table still exists, go straight into it; otherwise show the lobby with the name filled in and a short note that the table ended.
+3. **New icon.** Four options are on the mockup canvas (artboard "M7 — Home Screen icon options"): A fanned pair (the earlier mockup), B card back, C monogram, D palace. **The owner picks one before implementation.**
+4. **Use the entire screen (owner, emphasised).** The app must run edge to edge, including the strip behind the clock, battery and Dynamic Island: the walnut top bar extends under the status bar, with no white or black band above it. The dock clears the home indicator. iOS always draws the clock and battery on top; web apps can't hide them, so the top bar's contents start below them via `env(safe-area-inset-top)`.
+
+**Facts that shape the design:**
+
+- Since iOS 26, anything added to the Home Screen opens as a web app by default ([heise](https://heise.de/-10749652)). The manifest still supplies the name, icon, colours and display mode.
+- A Home Screen app has its **own** cookies and storage, separate from Safari's. A seat taken in Safari can't be resumed from the app, or the reverse. Invite links tapped in Messages open in Safari, not the app, so joining by room code must stay easy.
+- Storage can be evicted. WebKit asks web apps to cope with losing any cache or service worker ([WebKit storage policy](https://webkit.org/?p=14403)). The session cookie lasts 7 days.
+- Render shows its own loading page during a cold start (M6 finding). A cached app shell is what lets a Home Screen launch open into our own waking screen.
+
+**Implementation plan (Codex brief, Claude review):**
+
+1. **Manifest and head tags:** `manifest.webmanifest` (`name` "Palace Online", `short_name` "Palace", `display: standalone`, `start_url`/`scope` "/", `background_color` #0d1310, `theme_color` #2a1910, icons 192/512 plus a maskable 512); `apple-touch-icon` 180×180; `apple-mobile-web-app-capable` plus `mobile-web-app-capable`; `apple-mobile-web-app-status-bar-style` `black-translucent`; `apple-mobile-web-app-title` "Palace". Icons are built from vector source (SVG → PNG at build or committed PNGs), not generated images.
+2. **Full screen:** `viewport-fit=cover` is already set. Add `env(safe-area-inset-*)` padding: the header grows by the top inset (59 px on iPhone 15 Plus) while its background fills the whole strip, the dock gets the bottom inset (34 px), and landscape gets left/right insets. The standalone viewport is 430×932 CSS px. The body background matches the walnut bar, so no strip of another colour shows during launch or rubber-banding. Audit at 430×932 with simulated insets (Playwright can't produce real `env()` insets, so the CSS gets a test hook that sets them).
+3. **Service worker** (hand-written, no new dependency):
+   - Precache the app shell: `index.html`, hashed JS/CSS, fonts, court art and icons.
+   - Navigations go network first with a ~3 s timeout, and only accept responses carrying a header our server sets (for example `X-Palace-App`). Render's loading page lacks that header, so the cached shell is served instead.
+   - Never cache `/api`, `/socket.io` or `/healthz`.
+   - The shell shows a full-screen "Waking the table…" screen (M6 copy) and polls `/healthz` until the server answers, then continues to rejoin.
+   - After a deploy, a new worker takes over on the next launch. If the server's build differs from the cached shell, reload once.
+4. **Remember the table:**
+   - Store the last room code and display name in `localStorage`, and move M6's `palace-boot-<ROOM>` there from `sessionStorage`.
+   - On launch at "/", try `/reconnect` for the saved room. If it works, go straight into the table. If not, show the lobby with the name filled in and "Your last table ended."
+   - "Return home" forgets the saved room.
+5. **Staging:** no code change. The service reads the same env vars, with its own URL.
+6. **Tests:**
+   - The manifest and icons are served with the right types and sizes.
+   - The service worker registers (Chromium).
+   - An offline or "Render loading page" launch shows our waking screen, not a foreign page.
+   - A saved room auto-rejoins at "/".
+   - Safe-area padding is checked at 430×932 with simulated insets.
+   - No page overflow.
+
+**Staging service settings (owner, in the Render dashboard → New → Web Service):**
+
+- Repo `InxlingGamer/palace-online`, branch **`overhaul/next`**, name `palace-online-staging`, region Virginia, instance type **Free**, runtime Docker (Dockerfile `./Dockerfile`, context `.`), health check path `/healthz`, auto-deploy **after CI checks pass**.
+- Environment variables are the same as `render.yaml`: `NODE_ENV=production`, `PORT=10000`, `SESSION_COOKIE_SECURE=true`, `TRUST_PROXY=true`, `RECONNECT_GRACE_MS=600000`, `ROOM_IDLE_TTL_MS=1800000`, `ROOM_CREATE_LIMIT=20`, `INVALID_ACTION_LIMIT=30`. `PUBLIC_APP_URL` and `ALLOWED_ORIGINS` are the staging URL Render assigns (for example `https://palace-online-staging.onrender.com`; copy the real one from the dashboard).
+- Cost: $0. Free services share 750 instance-hours a month, but a sleeping service uses none, so two mostly idle services fit.
+- It starts on M6, so it also allows the M6 cold-start check on a real iPhone before M7 lands.
+
+**Not verifiable without the real iPhone (check on staging):** how the status-bar strip looks behind the Dynamic Island, the launch screen, service-worker behaviour after iOS evicts storage, and a real cold start from the Home Screen.
+
 ## After Milestone 3
 
 - **M4 redesign:** classic green felt. First produce a mockup of the table (desktop and iPhone portrait) for owner approval before implementation. Keep the join flow working. Cards: cream faces with proper pip layouts and original court-card treatment (no copyrighted art); one card-back design. Clear turn indicator, legal-card indication, last-move indicator, lobby with an invite/copy button, sounds on by default, reduced-motion support. Gate hover styles with `@media (hover: hover)`.
@@ -176,7 +224,7 @@ Work (Codex brief, Claude review):
 | 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; merged and deployed  |
 | 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | done; merged and deployed  |
 | 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | done; in `overhaul/next`   |
-| 7   | iPhone Home Screen web app (plan hosting with Render first)         | not started; needs plan    |
+| 7   | iPhone Home Screen web app (plan hosting with Render first)         | planned; icon pick pending |
 | 8   | Regression testing and final QA                                     | not started                |
 
 ## Task tracker
@@ -227,8 +275,8 @@ Work (Codex brief, Claude review):
 
 ## Open questions for the owner
 
-- M7: does the Home Screen app need one early deploy to test on the iPhone (see the integration-branch rule)?
-- M7 (Home Screen web app): details and hosting (stay on Render or switch) to be decided with the owner when M7 starts.
+- M7: pick the Home Screen icon (A–D on the mockup canvas, artboard "M7 — Home Screen icon options").
+- M7: create the free staging service in Render (settings in "Milestone 7 plan"); Claude can't do it from here.
 
 ## Verification status and unverified areas
 
