@@ -759,7 +759,7 @@ export function App() {
             pending={pending}
             onHidden={(slotId) => void act({ type: "SELECT_HIDDEN_CARD", slotId })}
           />
-          <Hand count={sortedHand.length} setup={state.phase === "setup"}>
+          <Hand count={sortedHand.length} setup={state.phase === "setup"} selectedIds={selected}>
             {sortedHand.map((card) => (
               <Card
                 key={card.id}

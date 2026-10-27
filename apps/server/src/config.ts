@@ -18,7 +18,14 @@ const schema = z.object({
   INVALID_ACTION_LIMIT: z.coerce.number().int().positive().default(30),
   TEST_SHUFFLE_SEED: z.string().optional(),
   TEST_GAME_SCENARIO: z
-    .enum(["seven-restriction", "blind-pickup", "finished-result", "pickup-own-turn", "final-play"])
+    .enum([
+      "seven-restriction",
+      "blind-pickup",
+      "finished-result",
+      "pickup-own-turn",
+      "final-play",
+      "big-hand",
+    ])
     .optional(),
 });
 

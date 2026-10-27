@@ -2,7 +2,12 @@ import type { GameState } from "@palace/game-engine";
 import { Rank, Suit, type Card } from "@palace/shared";
 
 export type TestGameScenario =
-  "seven-restriction" | "blind-pickup" | "finished-result" | "pickup-own-turn" | "final-play";
+  | "seven-restriction"
+  | "blind-pickup"
+  | "finished-result"
+  | "pickup-own-turn"
+  | "final-play"
+  | "big-hand";
 
 const card = (id: string, rank: Rank, suit = Suit.Spades): Card => ({ id, rank, suit });
 
@@ -22,6 +27,36 @@ export function applyTestScenario(state: GameState, scenario: TestGameScenario):
   next.resultReason = null;
   next.currentTurnPlayerId = first.id;
   next.stats = { turnCount: 0, pickups: { [first.id]: 0, [second.id]: 0 } };
+
+  if (scenario === "big-hand") {
+    const deck = Object.values(Rank).flatMap((rank) =>
+      Object.values(Suit).map((suit) => card(`big-${rank}-${suit}`, rank, suit)),
+    );
+    const inHand = (index: number) => {
+      const rankIndex = Math.floor(index / 4);
+      const suitIndex = index % 4;
+      return rankIndex < 6
+        ? suitIndex !== rankIndex % 4
+        : rankIndex === 6
+          ? suitIndex < 2
+          : suitIndex === rankIndex % 4;
+    };
+    first.hand = deck.filter((_, index) => inHand(index));
+    const remaining = deck.filter((_, index) => !inHand(index));
+    const pile = remaining.find((card) => card.rank === Rank.Three)!;
+    next.playPile = [pile];
+    second.hand = remaining.filter((card) => card.id !== pile.id).slice(0, 5);
+    // Keep all 52 physical cards distinct, including the existing field slots.
+    const used = new Set([...first.hand, ...second.hand, pile].map((card) => card.id));
+    const fields = deck.filter((card) => !used.has(card.id));
+    for (const player of next.players) {
+      for (const slot of [...player.selectedField, ...player.hiddenField])
+        slot.card = fields.shift() ?? null;
+    }
+    next.burned = fields;
+    next.message = `${first.name}'s turn.`;
+    return next;
+  }
 
   if (scenario === "seven-restriction") {
     first.hand = [card("scenario-seven", Rank.Seven), card("scenario-three", Rank.Three)];

@@ -1,4 +1,11 @@
-import { expect, test, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import {
+  expect,
+  test,
+  type Browser,
+  type BrowserContext,
+  type BrowserContextOptions,
+  type Page,
+} from "@playwright/test";
 
 const scenario = process.env.TEST_GAME_SCENARIO;
 
@@ -9,7 +16,10 @@ interface Players {
   playerB: Page;
 }
 
-async function createReadyGame(browser: Browser): Promise<Players> {
+async function createReadyGame(
+  browser: Browser,
+  overrides: BrowserContextOptions = {},
+): Promise<Players> {
   const { viewport, isMobile, hasTouch, deviceScaleFactor, userAgent } = test.info().project.use;
   const options = {
     ...(viewport !== undefined ? { viewport } : {}),
@@ -17,6 +27,7 @@ async function createReadyGame(browser: Browser): Promise<Players> {
     ...(hasTouch !== undefined ? { hasTouch } : {}),
     ...(deviceScaleFactor !== undefined ? { deviceScaleFactor } : {}),
     ...(userAgent !== undefined ? { userAgent } : {}),
+    ...overrides,
   };
   const contextA = await browser.newContext(options);
   const contextB = await browser.newContext(options);
@@ -48,7 +59,10 @@ async function createReadyGame(browser: Browser): Promise<Players> {
   }
   await playerA.getByRole("button", { name: "Lock in cards" }).click();
   await playerB.getByRole("button", { name: "Lock in cards" }).click();
-  if (scenario === "seven-restriction") {
+  if (scenario === "big-hand") {
+    await expect(playerA.locator(".hand [data-card-id]")).toHaveCount(26);
+    await expect(playerB.locator(".hand [data-card-id]")).toHaveCount(5);
+  } else if (scenario === "seven-restriction") {
     await expect(playerA.locator('.hand [data-card-rank="7"]')).toBeVisible();
   } else if (scenario === "blind-pickup") {
     await expect(playerA.locator('.play-stack [data-card-rank="A"]')).toBeVisible();
@@ -76,8 +90,10 @@ async function expectNoViewportOverflow(page: Page) {
     await page.evaluate(() => ({
       horizontal: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       vertical: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+      x: window.scrollX,
+      y: window.scrollY,
     })),
-  ).toEqual({ horizontal: 0, vertical: 0 });
+  ).toEqual({ horizontal: 0, vertical: 0, x: 0, y: 0 });
 }
 
 test("seven restriction is shown only to the affected player", async ({ browser }) => {
@@ -247,3 +263,311 @@ for (const reducedMotion of [false, true]) {
     }
   });
 }
+
+test.describe("big-hand", () => {
+  test.skip(scenario !== "big-hand", "Different deterministic scenario");
+
+  async function positionCard(page: Page, index: number) {
+    await page.locator(".hand").evaluate((el, index) => {
+      const card = el.querySelectorAll<HTMLElement>("[data-card-id]")[index]!;
+      const box = el.getBoundingClientRect();
+      el.scrollLeft += card.getBoundingClientRect().left - box.left - el.clientWidth / 2;
+    }, index);
+    await settleScroll(page);
+  }
+
+  // A touch during the preceding scroll's 80 ms glide window must be rejected, and WebKit can
+  // deliver the scroll event well after scrollLeft is set, so wait for 120 ms without scrolling.
+  async function settleScroll(page: Page) {
+    await page.locator(".hand").evaluate(
+      (el) =>
+        new Promise<void>((resolve) => {
+          let last = performance.now();
+          const onScroll = () => (last = performance.now());
+          el.addEventListener("scroll", onScroll, { passive: true });
+          const check = () => {
+            if (performance.now() - last > 120) {
+              el.removeEventListener("scroll", onScroll);
+              resolve();
+            } else requestAnimationFrame(check);
+          };
+          requestAnimationFrame(() => requestAnimationFrame(check));
+        }),
+    );
+  }
+
+  async function tapCard(page: Page, index: number) {
+    const card = page.locator(".hand [data-card-id]").nth(index);
+    const box = (await card.boundingBox())!;
+    await page.touchscreen.tap(box.x + 12, box.y + 15);
+  }
+
+  async function expectCardInside(page: Page, index: number) {
+    await expect
+      .poll(() =>
+        page.locator(".hand").evaluate((el, index) => {
+          const box = el.getBoundingClientRect();
+          const card = el.querySelectorAll("[data-card-id]")[index]!.getBoundingClientRect();
+          return card.left >= box.left - 1 && card.right <= box.right + 1;
+        }, index),
+      )
+      .toBe(true);
+  }
+
+  test("readable strips, dock clearance, selection badges and keyboard", async ({ browser }) => {
+    const players = await createReadyGame(browser);
+    const page = players.playerA;
+    try {
+      const mobile = !!test.info().project.use.isMobile;
+      const geometry = await page.locator(".hand").evaluate((el) => {
+        const cards = [...el.querySelectorAll("[data-card-id]")].map((card) =>
+          card.getBoundingClientRect(),
+        );
+        return {
+          strips: cards.slice(1).map((card, index) => card.left - cards[index]!.left),
+          overflow: el.scrollWidth - el.clientWidth,
+          bottom: Math.max(...cards.map((card) => card.bottom)),
+          dockTop: document.querySelector(".action-dock")!.getBoundingClientRect().top,
+        };
+      });
+      expect(Math.min(...geometry.strips)).toBeGreaterThanOrEqual(mobile ? 23.99 : 21.99);
+      expect(geometry.bottom).toBeLessThanOrEqual(geometry.dockTop);
+      if (!mobile) expect(geometry.overflow).toBeLessThanOrEqual(1);
+      await expectNoViewportOverflow(page);
+      const cards = page.locator(".hand [data-card-id]");
+
+      if (mobile) {
+        expect(geometry.overflow).toBeGreaterThan(1);
+        await page.locator(".hand").evaluate((el) => {
+          el.scrollLeft = el.scrollWidth;
+        });
+        await expectCardInside(page, 25);
+        for (let index = 0; index < 26; index++) {
+          await positionCard(page, index);
+          await tapCard(page, index);
+          await expect(cards.nth(index)).toHaveAttribute("aria-pressed", "true");
+          await tapCard(page, index);
+          await expect(cards.nth(index)).toHaveAttribute("aria-pressed", "false");
+        }
+        const eightIndices = await cards.evaluateAll((els) =>
+          els.flatMap((el, index) => (el.getAttribute("data-card-rank") === "8" ? [index] : [])),
+        );
+        for (const side of ["right", "left"] as const) {
+          const indices = side === "right" ? eightIndices : [0, 1];
+          for (const index of indices) {
+            await positionCard(page, index);
+            await tapCard(page, index);
+            await expect(cards.nth(index)).toHaveAttribute("aria-pressed", "true");
+          }
+          await page.locator(".hand").evaluate((el, side) => {
+            el.scrollLeft = side === "right" ? 0 : el.scrollWidth;
+          }, side);
+          const badge = page.locator(`.hand-selected--${side}`);
+          // On wider rows the first 8 can stay readable at the right edge with the hand at the start.
+          await expect(badge).toHaveAccessibleName(
+            side === "left" ? "Scroll to 2 selected cards" : /^Scroll to [12] selected cards?$/,
+          );
+          const hit = (await badge.boundingBox())!;
+          expect(hit.width).toBeGreaterThanOrEqual(44);
+          expect(hit.height).toBeGreaterThanOrEqual(44);
+          await badge.tap();
+          await expect(badge).toHaveCount(0);
+          await expectCardInside(page, side === "right" ? indices[0]! : indices[1]!);
+          for (const index of indices) {
+            await positionCard(page, index);
+            await tapCard(page, index);
+          }
+        }
+        // A selected index in the inner (readable) half of the fade needs no badge; past the edge
+        // it does.
+        await positionCard(page, 5);
+        await tapCard(page, 5);
+        await expect(cards.nth(5)).toHaveAttribute("aria-pressed", "true");
+        for (const [offset, badges] of [
+          [20, 0],
+          [-14, 1],
+        ] as const) {
+          await page.locator(".hand").evaluate((el, offset) => {
+            const card = el.querySelectorAll("[data-card-id]")[5]!;
+            el.scrollLeft +=
+              card.getBoundingClientRect().left - el.getBoundingClientRect().left - offset;
+          }, offset);
+          await settleScroll(page);
+          await expect(page.locator(".hand-selected--left")).toHaveCount(badges);
+        }
+        await positionCard(page, 5);
+        await tapCard(page, 5);
+        await expect(cards.nth(5)).toHaveAttribute("aria-pressed", "false");
+        // Tap a strip partly covered by the left fade: it must be nudged clear.
+        await page.locator(".hand").evaluate((el) => {
+          const card = el.querySelectorAll("[data-card-id]")[3]!;
+          el.scrollLeft += card.getBoundingClientRect().left - el.getBoundingClientRect().left - 26;
+        });
+        await settleScroll(page);
+        const partial = (await cards.nth(3).boundingBox())!;
+        await page.touchscreen.tap(partial.x + 2, partial.y + 15);
+        await expect(cards.nth(3)).toHaveAttribute("aria-pressed", "true");
+        await expect
+          .poll(() =>
+            page.locator(".hand").evaluate((el) => {
+              const card = el.querySelectorAll("[data-card-id]")[3]!.getBoundingClientRect();
+              return card.left - el.getBoundingClientRect().left;
+            }),
+          )
+          .toBeGreaterThanOrEqual(31.5);
+        await settleScroll(page);
+        await tapCard(page, 3);
+        // Singularity and reduced-motion navigation use the same badges.
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await positionCard(page, 0);
+        await tapCard(page, 0);
+        await page.locator(".hand").evaluate((el) => {
+          el.scrollLeft = el.scrollWidth;
+        });
+        await page.getByRole("button", { name: "Scroll to 1 selected card", exact: true }).tap();
+        await expectCardInside(page, 0);
+        await expect(page.locator(".hand-selected")).toHaveCount(0);
+        await expectNoViewportOverflow(page);
+      }
+      const first = cards.first();
+      await first.focus();
+      const before = await first.getAttribute("aria-pressed");
+      await first.press("Space");
+      await expect(first).toHaveAttribute("aria-pressed", before === "true" ? "false" : "true");
+      await first.press("Enter");
+      await expect(first).toHaveAttribute("aria-pressed", before!);
+    } finally {
+      await players.contextA.close();
+      await players.contextB.close();
+    }
+  });
+
+  test("touch/pen swipe, glide, cancellation and tap guard", async ({ browser }) => {
+    const players = await createReadyGame(browser, {
+      viewport: { width: 430, height: 739 },
+      hasTouch: true,
+      isMobile: true,
+    });
+    const page = players.playerA;
+    try {
+      const card = page.locator(".hand [data-card-id]").first();
+      for (const pointerType of ["touch", "pen"]) {
+        await page.locator(".hand").evaluate((el) => {
+          el.scrollLeft = 0;
+        });
+        await settleScroll(page);
+        await card.dispatchEvent("pointerdown", {
+          pointerType,
+          pointerId: 1,
+          clientX: 100,
+          clientY: 100,
+        });
+        await page.locator(".hand").evaluate((el) => {
+          el.scrollLeft = 80;
+        });
+        await card.dispatchEvent("pointerup", {
+          pointerType,
+          pointerId: 1,
+          clientX: 100,
+          clientY: 100,
+        });
+        await card.evaluate((el) =>
+          el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 })),
+        );
+        await expect(card).toHaveAttribute("aria-pressed", "false");
+
+        await page.locator(".hand").evaluate((el) => el.dispatchEvent(new Event("scroll")));
+        await card.dispatchEvent("pointerdown", { pointerType, pointerId: 2 });
+        await card.dispatchEvent("pointerup", { pointerType, pointerId: 2 });
+        await card.dispatchEvent("click", { detail: 1 });
+        await expect(card).toHaveAttribute("aria-pressed", "false");
+        await card.dispatchEvent("pointerdown", { pointerType, pointerId: 3 });
+        await card.dispatchEvent("pointercancel", { pointerType, pointerId: 3 });
+        await card.dispatchEvent("click", { detail: 1 });
+        await expect(card).toHaveAttribute("aria-pressed", "false");
+        await card.dispatchEvent("pointerdown", { pointerType: "mouse", pointerId: 5 });
+        await card.dispatchEvent("click", { detail: 1 });
+        await expect(card).toHaveAttribute("aria-pressed", "true");
+        await card.press("Enter");
+        // Keyboard activation must work even with a rejected gesture still recorded.
+        await card.dispatchEvent("pointerdown", { pointerType, pointerId: 6 });
+        await card.dispatchEvent("pointercancel", { pointerType, pointerId: 6 });
+        await card.press("Space");
+        await expect(card).toHaveAttribute("aria-pressed", "true");
+        await card.press("Enter");
+        await expect(card).toHaveAttribute("aria-pressed", "false");
+        await positionCard(page, 0);
+        await card.dispatchEvent("pointerdown", { pointerType, pointerId: 4 });
+        await card.dispatchEvent("pointerup", { pointerType, pointerId: 4 });
+        await card.dispatchEvent("click", { detail: 1 });
+        await expect(card).toHaveAttribute("aria-pressed", "true");
+        await card.press("Enter");
+      }
+      expect(
+        await card.evaluate((el) =>
+          el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+        ),
+      ).toBe(false);
+      await expectNoViewportOverflow(page);
+    } finally {
+      await players.contextA.close();
+      await players.contextB.close();
+    }
+  });
+
+  test("native touch glide and frame timing in mobile Chromium", async ({ browser }) => {
+    test.skip(test.info().project.name !== "desktop-chromium", "CDP requires Chromium");
+    const players = await createReadyGame(browser, {
+      isMobile: true,
+      hasTouch: true,
+      viewport: { width: 430, height: 739 },
+    });
+    const page = players.playerA;
+    try {
+      const hand = page.locator(".hand");
+      const box = (await hand.boundingBox())!;
+      const cdp = await players.contextA.newCDPSession(page);
+      const x = box.x + box.width - 35;
+      const y = box.y + box.height / 2;
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+      for (let step = 1; step <= 10; step++) {
+        await cdp.send("Input.dispatchTouchEvent", {
+          type: "touchMove",
+          touchPoints: [{ x: x - step * 20, y }],
+        });
+        await page.waitForTimeout(16);
+      }
+      await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await expect.poll(() => hand.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+      await expect(page.locator('.hand [aria-pressed="true"]')).toHaveCount(0);
+      await expectNoViewportOverflow(page);
+      await page.waitForTimeout(400);
+      const p95 = await hand.evaluate(
+        (el) =>
+          new Promise<number>((resolve) => {
+            const intervals: number[] = [];
+            let start = 0;
+            let previous = 0;
+            const frame = (now: number) => {
+              if (!start) start = now;
+              if (previous) intervals.push(now - previous);
+              previous = now;
+              el.scrollLeft = ((now - start) / 1000) * (el.scrollWidth - el.clientWidth);
+              if (now - start < 1000) requestAnimationFrame(frame);
+              else {
+                intervals.sort((a, b) => a - b);
+                resolve(intervals[Math.floor(intervals.length * 0.95)]!);
+              }
+            };
+            requestAnimationFrame(frame);
+          }),
+      );
+      expect(p95).toBeLessThan(50);
+      await expectNoViewportOverflow(page);
+      await cdp.detach();
+    } finally {
+      await players.contextA.close();
+      await players.contextB.close();
+    }
+  });
+});

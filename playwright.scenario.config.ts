@@ -30,7 +30,10 @@ export default defineConfig({
     },
     {
       name: "iphone-portrait",
-      use: { ...devices["iPhone 15 Plus"], viewport: { width: 430, height: 932 } },
+      use: {
+        ...devices["iPhone 15 Plus"],
+        viewport: { width: 430, height: scenario === "big-hand" ? 739 : 932 },
+      },
     },
     {
       name: "iphone-landscape",
