@@ -26,6 +26,13 @@ jobs:
 
   browser:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Browsers and their system packages come preinstalled; `playwright install --with-deps`
+    # took up to 54 min when the Ubuntu apt mirror was slow. Keep the tag equal to the
+    # locked Playwright version (checked below).
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
+      options: --user 1001
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -36,7 +43,14 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm exec playwright install --with-deps chromium webkit
+      - name: Check Playwright matches the container image
+        run: |
+          version="$(pnpm exec playwright --version)"
+          echo "$version"
+          if [ "$version" != "Version 1.62.1" ]; then
+            echo "::error::Update the container image tag in ci.yml to match Playwright"
+            exit 1
+          fi
       - run: pnpm test:e2e:full
         env:
           TEST_SHUFFLE_SEED: github-actions
