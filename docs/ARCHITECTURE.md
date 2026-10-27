@@ -25,7 +25,7 @@ Each player projection includes that player's visible hand, public pile cards, a
 - `POST /api/rooms { name }` creates a room and player session.
 - `POST /api/rooms/:code/join { name }` claims the second seat.
 - `POST /api/rooms/:code/reconnect` validates the current cookie and returns a fresh snapshot.
-- `GET /healthz` reports process availability.
+- `GET /healthz` reports `{ status, uptime, bootId }`; the random per-process `bootId` is stable until restart and responses are not cached.
 
 Socket authentication carries the room code while the session credential remains in the HttpOnly cookie. The client emits `game:action` with:
 
@@ -49,7 +49,9 @@ Socket authentication carries the room code while the session credential remains
 
 The acknowledgement contains `actionId`, `accepted`, the authoritative revision, and a sanitized error when rejected. Accepted mutations broadcast `state:snapshot` separately to each player's private Socket.IO target. A repeated action ID returns its cached acknowledgement without applying twice. Play, pickup, seven-direction, and hidden-card commands compare `expectedTurn` with `turnSeq`; legacy envelopes without it compare `expectedRevision` strictly. Other commands rely on authoritative engine validation without a version precondition. A conflict returns `STALE_STATE` and triggers a fresh snapshot, without counting as an invalid action. The turn sequence advances once per accepted table move or phase transition, including deals, victory, forfeit, and expiry; draws, presence changes, and partial ready/setup/rematch votes do not advance it. Repeated ready/rematch votes are accepted without changing state or broadcasting.
 
-The client allows one pending action and uses an eight-second acknowledgement timeout. After a transport failure it waits up to 30 seconds for reconnection, then retries the same envelope once so the action cache prevents double application. Connection and stale-table notices are neutral; notices dismiss after four seconds and clear on results. Older revisions for the current room are ignored.
+The client allows one pending action and uses an eight-second acknowledgement timeout. After a transport failure it waits up to 30 seconds for reconnection, then retries the same envelope once so the action cache prevents double application. Connection and stale-table notices are neutral; notices dismiss after four seconds and clear on results. Older revisions for the current room are ignored. Socket.IO continues retrying transport failures; the banner says "Reconnecting…" for four seconds, then "Waking the table…" with the free-tier sleep explanation. Browser online/offline events take priority with an offline waiting message. Dropped connections, non-JSON 2xx/5xx responses and 502/503/504 responses retry with bounded backoff under a 90-second deadline; lobby and reload progress switch to the waking copy after four seconds, and exhaustion gives a friendly retry message. Every 4xx fails immediately (JSON errors keep their message; a plain-text 429 from the rate limiter says to try again in a minute). After a server-side disconnect Socket.IO stops retrying, so the banner asks for a tap instead.
+
+After create, join, or reconnect, the client fetches `/healthz` and records the boot identity in memory and `sessionStorage` under `palace-boot-<ROOMCODE>`. An invalid socket session or failed reload reconnect compares the saved identity with a fresh health response. A changed identity explains that the table ended because the server restarted; missing identities or a failed health check retain the ordinary room-expired explanation. Rooms remain in memory only and cannot survive a server restart.
 
 ## Reconnection and lifecycle
 

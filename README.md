@@ -73,7 +73,7 @@ Or run the container locally:
 docker compose up --build
 ```
 
-Visit `http://localhost:3001`; the health endpoint is `GET /healthz`.
+Visit `http://localhost:3001`; the health endpoint is `GET /healthz`, returning `{ status, uptime, bootId }`. The random `bootId` changes on each server process restart. Open clients retry while Render wakes and explain when a restart has ended their in-memory table.
 
 For public deployment, use a persistent Node/container provider that supports long-lived WebSocket connections and sticky single-instance operation. Set the public URL and allowed origin to the HTTPS deployment URL, enable secure cookies, expose the configured `PORT`, and point the provider health check at `/healthz`. Do not deploy the multiplayer server as a short-lived serverless function.
 
