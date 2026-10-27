@@ -102,6 +102,9 @@ svg {
   box-shadow: none;
 }
 .game-shell {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
   height: 100dvh;
   display: grid;
   grid-template-rows: 52px minmax(0, 1fr) auto;
@@ -501,6 +504,7 @@ svg {
   min-width: 0;
 }
 .hand {
+  -webkit-touch-callout: none;
   overflow-x: auto;
   overflow-y: hidden;
   padding: 25px 4px 12px;
@@ -544,6 +548,51 @@ svg {
   top: 50%;
   z-index: 6;
   pointer-events: none;
+}
+.game-shell input,
+.game-shell textarea {
+  -webkit-user-select: text;
+  user-select: text;
+}
+.game-shell button,
+.game-shell .card {
+  -webkit-tap-highlight-color: transparent;
+}
+.hand-selected {
+  position: absolute;
+  top: 58%;
+  z-index: 7;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 8px 0;
+  border: 0;
+  background: transparent;
+  color: var(--gold-ink);
+  font:
+    700 13px Manrope,
+    sans-serif;
+}
+.hand-selected--left {
+  left: 0;
+}
+.hand-selected--right {
+  right: 0;
+}
+.hand-selected span {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--gold);
+}
+.hand-selected svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
 }
 .card {
   container-type: inline-size;
@@ -1259,6 +1308,7 @@ svg {
 @media (max-height: 500px) and (orientation: landscape) {
   :root {
     --card-w: 56px;
+    --minimum-strip: 24;
   }
   .game-shell {
     grid-template-rows: 44px minmax(0, 1fr) 66px;

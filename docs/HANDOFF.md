@@ -2,7 +2,7 @@
 
 Living status document for the 2026 audit and overhaul. Keep it current at every checkpoint so any new chat can pick up from here. Read this first, then `README.md`, `docs/ARCHITECTURE.md`, and `docs/RULES.md`.
 
-_Last updated: 2026-10-27 — Milestones 2 and 3 are live in production (`main` @ `54bdd98`). **Milestone 4 (classic green felt redesign) is implemented and verified on `overhaul/m4-felt-redesign`; its PR is open and awaiting the owner's approval to merge.** The iPhone Home Screen web app is deferred to a later milestone._
+_Last updated: 2026-10-27 — Milestones 2–4 are live in production (`main` @ `cb1691e`, M4 deployed about 06:53 UTC). **Milestone 5 (iPhone hand for 20+ cards) is done and verified on `overhaul/m5-iphone-hand`; its PR awaits the owner's approval.** The owner-requested rule change (pick up the pile only on your own turn) is done on `overhaul/pickup-own-turn`, PR #6, also awaiting approval. The iPhone Home Screen web app is deferred to a later milestone._
 
 ## How to resume
 
@@ -28,7 +28,8 @@ _Last updated: 2026-10-27 — Milestones 2 and 3 are live in production (`main` 
 
 ## Current state
 
-- Active branch: `overhaul/m4-felt-redesign` (from `main` @ `54bdd98`). M4 PR open against `main`, awaiting the owner's approval; **do not merge without it** (merging deploys to production).
+- Active branches (both from `main` @ `cb1691e`): `overhaul/m5-iphone-hand` (M5, main checkout; PR open) and `overhaul/pickup-own-turn` (rule change, in the git worktree `../palace-pickup-own-turn`; [PR #6](https://github.com/InxlingGamer/palace-online/pull/6)). Each has its own PR; **do not merge without the owner's approval** (merging deploys to production).
+- M4 merged 2026-10-27 06:46 UTC with the owner's approval ([PR #4](https://github.com/InxlingGamer/palace-online/pull/4) → `cb1691e`). `main` CI passed (quality + browser) and Render deployed it at about 06:53 UTC: `/healthz` OK, the live bundle contains the M4 hand code, and `/cards/court-king.webp` is served.
 - M4 mockup, approved by the owner 2026-10-27: [Palace felt table mockup](https://claude.ai/artifact/QKGHDTgYMXbDyFfBcMiZPM), a private design canvas (only the owner can open it unless shared). Frames: desktop on your turn and with a 22-card hand; iPhone 15 Plus (Safari 430×739) on your turn, on Ben's turn and with a 22-card hand; card sheet; card component; plus a DEFERRED row (Home Screen app, icon).
 - Verification for M4: 99/99 Vitest tests (baseline 75), 4/4 typechecks, ESLint, Prettier, production build; Playwright main suite 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape) with new no-page-overflow and hidden-scrollbar checks; scenario suites 18/18. Screenshots of every screen reviewed at 1366×768, 1920×1080, iPhone portrait 430×739 and iPhone landscape (`output/audit/shots/`, local only).
 - Merged 2026-10-26 with the owner's explicit approval (merge commits, not squash): PR #1 (M2) → `edb6dbb`; PR #2 (M3) → `1ac0278`; [PR #3](https://github.com/InxlingGamer/palace-online/pull/3) (CI test fix) → `f3fafc2`. Render deployed M2 at 20:58 UTC and M3 at 22:12 UTC; `/healthz` OK; the live client bundle contains the M3 code; the main browser suite passed 6/6 against production (desktop Chromium, iPhone portrait).
@@ -94,13 +95,50 @@ The owner likes the design and asked for these changes:
 - Hand behaviour now covers most of M5's acceptance: 26 cards fit on desktop at 1366 wide (46 px strips) and on iPhone portrait about 16 cards fit; beyond that the row swipes with no visible scrollbar. M5 still owns tap-vs-swipe tuning, momentum feel and performance with 26+ cards.
 - Known limitations: the opponent's face-down hand on iPhone sits small under their field; desktop at 1920×1080 leaves generous empty felt (cards are capped at 96 px). Neither blocks play.
 
+### Rule change: pick up only on your own turn (owner, 2026-10-27)
+
+The owner revised the M3 pickup rule: "you should ONLY be able to pick up the pile when it is your turn but you can do it on ANY turn." Interpretation being implemented: `PICK_UP_PILE` requires your turn (off-turn returns `NOT_YOUR_TURN`), but it is allowed on any of your turns, even when you hold a legal card. Unchanged: it ends your turn, it is blocked while a seven direction choice is pending, and it consumes a seven restriction targeting you. The client shows "Pick up pile" only on your turn. Scenario `pickup-anytime` becomes `pickup-own-turn`. It ships as its own PR, separate from M5.
+
+## Milestone 5 plan (in progress)
+
+M4 already fits the hand to its row (24 px minimum strip on iPhone, about 16 cards) with hidden scrollbars, and swipes only beyond that. Baseline on `main` @ `cb1691e` (audit harness, iPhone 430×739): 26 cards → 24 px strips with 11 cards off-screen until swiped; no page overflow; the hand ends exactly at the dock top (614 px).
+
+Owner answers (2026-10-27):
+
+1. **Selected cards scrolled off-screen → gold edge badge** ("‹ 2 selected" / "2 selected ›"). Tapping it scrolls back to them. Selected cards keep the lift and gold ring; the dock's "2 × 8" stays.
+2. **Free glide:** native momentum, no scroll-snap.
+3. **Keep the 24 px minimum strip** on iPhone (no widening when the hand overflows).
+
+Work (Codex brief, Claude review):
+
+- Tap-vs-swipe guard (`hand-gesture.ts`): a touch counts as a tap only if it moved ≤ 10 px, the hand scrolled ≤ 2 px, and it did not start during a glide.
+- Edge badge, plus a nudge into view when you select a card that sits under an edge fade.
+- `touch-action: manipulation`, and no text selection or long-press menu in the game.
+- A rAF-throttled scroll handler that doesn't re-render the cards.
+- A `big-hand` test scenario (26 cards) with browser tests on desktop Chromium, iPhone portrait and landscape, including a real CDP touch swipe in mobile-emulated Chromium and a rough frame-time guard.
+
+### M5 implementation (2026-10-27, done; PR awaiting approval)
+
+- Codex implemented it as briefed: `hand-gesture.ts` (`isTap`, `selectedVisibility`, thresholds `TAP_DISTANCE` 10, `TAP_SCROLL_DELTA` 2, `GLIDE_IDLE_MS` 80, `MIN_VISIBLE_STRIP` 12), `hand.tsx` (passive pointer listeners on the scroll box, capture-phase click guard for touch/pen only, `contextmenu` blocked, rAF-throttled edge/badge state, `.hand-selected--left/right` badge buttons, nudge on select), `.game-shell` `touch-action: manipulation` + no text selection, `-webkit-touch-callout: none` on the hand. Landscape now also uses the 24 px minimum strip (it inherited 22). Scenario `big-hand` (26 cards, 52 distinct physical cards); the scenario config runs it on iPhone portrait at 430×739.
+- Codex's sandbox could not start Vitest or Playwright (`spawn EPERM`); Claude ran everything.
+- Claude review fix: the big-hand test waited a fixed 120 ms after setting `scrollLeft` before tapping, but WebKit delivers that scroll event 0–90 ms late (more under load), so the tap sometimes fell inside the 80 ms glide window and was correctly ignored (flaky on cards 10–17, the ones whose positioning really scrolls). The test now waits for 120 ms of scroll silence (`settleScroll`). Product behaviour unchanged.
+- Claude review fix 2 (from audit screenshots): the badge counted a selected card as hidden when its index sat anywhere under the 32 px edge fade, so it showed "1 selected" while that card's rank was plainly readable. Visibility now insets only the outer half of the fade (`HAND_FADE_COVER` = 16 px); the tap nudge still clears the full fade. New browser assertion: a selected index 20 px into the fade shows no badge; past the edge it does.
+- Audit harness (`output/audit/shots.ts`, local) gained shots 22–25: 26-card hand with the 8s selected, swiped to each end, and the 2s selected and swiped away (badge). Measurements: page overflow 0 on every screen; hand bottom never below the dock top (iPhone 614/614, landscape 314/314); iPhone portrait 430×739 at 26 cards: 24 px strips, swipe range 276 px; landscape 814×380: 24 px, range 306 px; desktop 1366 and 1920: 26 cards fit (46 / 67 px strips), no scroll, no badge.
+- Final verification: `pnpm check` (Prettier, ESLint, 4/4 typechecks, 104/104 Vitest — baseline 99, production build); main browser suite 12/12; all six scenario suites 25/25 (`big-hand` 7/7 three runs in a row after the fixes; the CDP touch-swipe and frame-time test runs on Chromium only, p95 frame < 50 ms).
+- Unverified (no real device): how the free glide and the 80 ms glide window feel under a real finger, Safari's edge-swipe back gesture near the hand's left edge, and performance on the real A16 GPU. Playwright WebKit cannot synthesise native touch scrolling; the swipe guard is tested with dispatched pointer events there and with a real CDP touch swipe in mobile Chromium.
+- Merge note: PR #6 (pickup rule) renames scenario `pickup-anytime` → `pickup-own-turn` in the same lines this branch edits (`config.ts`, `test-scenarios.ts`, root `package.json`) and both edit this file. Whichever merges second needs `main` merged in and those conflicts resolved (keep both: the rename and `big-hand`).
+- Windows note: switching branches with `core.autocrlf=true` rewrites some files with CRLF and Prettier then flags them; `corepack pnpm exec prettier --write <files>` restores LF with no content diff.
+
 ## After Milestone 3
 
 - **M4 redesign:** classic green felt. First produce a mockup of the table (desktop and iPhone portrait) for owner approval before implementation. Keep the join flow working. Cards: cream faces with proper pip layouts and original court-card treatment (no copyrighted art); one card-back design. Clear turn indicator, legal-card indication, last-move indicator, lobby with an invite/copy button, sounds on by default, reduced-motion support. Gate hover styles with `@media (hover: hover)`.
 - **M5 hand layout:** single sideways-scrolling hand sorted as today (owner's choice). Acceptance: 20+ cards on iPhone 15 Plus (430×739 CSS px) are identifiable and individually selectable, nothing under the action dock, no page scroll/zoom or text selection conflicts, tap vs. swipe disambiguated, selected cards stay visible, smooth with 26+ cards. Measure with the audit harness (`output/audit/shots.ts`).
 - **M6:** "waking the table" screen for Render cold starts (the first request after 15 idle minutes takes about a minute).
-- **M7:** full regression on desktop + iPhone WebKit, a written iPhone checklist for the owner, final HANDOFF update.
-- **Later (deferred by the owner, 2026-10-27): iPhone Home Screen web app.** Plan it first, with Render in mind (how the static manifest and icons are served and cached, deploy behaviour, any service worker), then implement. Requirements and iOS caveats are in "M4 owner feedback" above; mockup frames are in the canvas's DEFERRED row.
+- **M7 (added by the owner, 2026-10-27, placed before final QA at their request): iPhone Home Screen web app** (a "bookmark app": Safari → Share → Add to Home Screen opens Palace full screen like an app). Details still to be worked out with the owner before any code. Planning questions:
+  - Hosting: can it stay on Render free? Check how the manifest and icons are served and cached, what a deploy does to an installed app, whether a service worker is needed or wise, and how the ~1-minute cold start feels when launching from the Home Screen (ties into M6). If Render can't support it well, list the alternatives and costs and get the owner's approval before any switch (the budget is $0).
+  - App behaviour: rejoin data surviving iOS killing the app (`sessionStorage` → `localStorage`?); invite links from Messages open in Safari, not the installed app, so joining by room code must stay easy.
+  - Requirements and iOS caveats are in "M4 owner feedback" above; mockup frames are in the canvas's DEFERRED row.
+- **M8:** full regression on desktop + iPhone WebKit (including the Home Screen app), a written iPhone checklist for the owner, final HANDOFF update.
 
 ## Milestones
 
@@ -109,10 +147,11 @@ The owner likes the design and asked for these changes:
 | 1   | Audit and prioritized findings                                      | done (approved 2026-10-26) |
 | 2   | Multiplayer reliability, server crash fixes, lifecycle timers       | done; merged and deployed  |
 | 3   | Requested rules: pick up anytime; show final card before result     | done; merged and deployed  |
-| 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; PR awaiting approval |
-| 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | not started                |
+| 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; merged and deployed  |
+| 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | done; PR awaiting approval |
 | 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | approved, not started      |
-| 7   | Regression testing and final QA                                     | not started                |
+| 7   | iPhone Home Screen web app (plan hosting with Render first)         | not started; needs plan    |
+| 8   | Regression testing and final QA                                     | not started                |
 
 ## Task tracker
 
@@ -132,6 +171,9 @@ The owner likes the design and asked for these changes:
 | M4-1 | Mockup with owner feedback (no scrollbar, court pictures; Home Screen app deferred); court art generated by Codex image_gen                                                                                                                 | —   | done   | Claude | —       | mockup, public/cards       | yes      |
 | M4-2 | Felt redesign implementation: cards, table, hand layout, copy helpers, lobby/overlays, tests                                                                                                                                                | P1  | done   | Codex  | M4-1    | client                     | yes      |
 | M4-3 | Claude review, e2e + screenshots (4 viewports); fixes: static fonts, desktop rows, landscape, landing grid, seven copy, mobile reload guard                                                                                                 | —   | done   | Claude | M4-2    | client, e2e                | yes      |
+| R-1  | Pick up only on your own turn (any of your turns): engine, client button, tests, `pickup-own-turn` scenario, RULES; PR #6                                                                                                                   | P1  | done   | Codex  | —       | engine, client, e2e, docs  | yes      |
+| M5-1 | Hand: tap-vs-swipe guard, selected-card edge badge, no zoom/selection conflicts, scroll performance, `big-hand` scenario and tests                                                                                                          | P1  | done   | Codex  | —       | client, server scenario    | yes      |
+| M5-2 | Claude review, audit-harness measurements (iPhone portrait/landscape, desktop), screenshots, PR                                                                                                                                             | —   | done   | Claude | M5-1    | —                          | yes      |
 
 ## Key audit findings (summary)
 
@@ -149,7 +191,7 @@ The owner likes the design and asked for these changes:
 - Conflict policy: only turn-changing actions are checked against a turn sequence; draws, ready, setup, rematch, and leave are validated by the engine without a revision precondition.
 - Legacy clients (no `expectedTurn`) keep the old strict revision check for turn actions.
 - Owner answers, 2026-10-26:
-  1. **Pick up anytime, regardless of whose turn it is** (M3). Interpretation to implement: allowed whenever the pile is non-empty and play is active, even with a legal move. On your own turn it ends your turn as today; off-turn it leaves the turn unchanged and consumes any seven restriction targeting you. Blocked only while a seven direction choice is pending (it resolves in a moment). An off-turn pickup changes the pile, so it bumps `turnSeq`; a play racing it gets the neutral "table changed" notice.
+  1. **Superseded 2026-10-27: pickup is now on your own turn only (any of your turns); see "Rule change" above.** Original M3 answer: **Pick up anytime, regardless of whose turn it is** (M3). Interpretation to implement: allowed whenever the pile is non-empty and play is active, even with a legal move. On your own turn it ends your turn as today; off-turn it leaves the turn unchanged and consumes any seven restriction targeting you. Blocked only while a seven direction choice is pending (it resolves in a moment). An off-turn pickup changes the pile, so it bumps `turnSeq`; a play racing it gets the neutral "table changed" notice.
   2. **Final-card reveal approved** (M3): show the last played card (even if it burned the pile) for ~1.5 s before WINNER/LOSER. Requires the server to expose the last play in the projection.
   3. **Large hands: a single sideways-scrolling hand, sorted as today** (M5), not rank stacks. Requirements: readable card corners at every size, momentum scroll with tap-vs-swipe disambiguation, no page scroll/zoom conflicts, selected cards stay visible, edge fade hints, nothing hidden under the action dock.
   4. **Stay on Render** and add a cold-start "waking the table" screen (M6).
@@ -157,7 +199,8 @@ The owner likes the design and asked for these changes:
 
 ## Open questions for the owner
 
-- Approve merging the M4 PR into `main` (deploys the redesign to production).
+- Approve merging the M5 PR (iPhone hand) and PR #6 (pickup only on your own turn) into `main`; each merge deploys to production.
+- M7 (Home Screen web app): details and hosting (stay on Render or switch) to be decided with the owner when M7 starts.
 
 ## Verification status and unverified areas
 
