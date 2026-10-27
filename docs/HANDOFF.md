@@ -2,7 +2,7 @@
 
 Living status document for the 2026 audit and overhaul. Keep it current at every checkpoint so any new chat can pick up from here. Read this first, then `README.md`, `docs/ARCHITECTURE.md`, and `docs/RULES.md`.
 
-_Last updated: 2026-10-27 — Milestones 2–4 are live in production (M4 deployed about 06:53 UTC). The owner approved merging both pending PRs: the rule change "pick up the pile only on your own turn" ([PR #6](https://github.com/InxlingGamer/palace-online/pull/6)) merged as `0785602`, and **Milestone 5 (iPhone hand for 20+ cards, [PR #7](https://github.com/InxlingGamer/palace-online/pull/7)) is merged next**. Next up: M6 ("waking the table" cold-start screen), then M7 (iPhone Home Screen web app, plan with the owner first) and M8 (regression)._
+_Last updated: 2026-10-27 — Milestones 2–5 and the "pick up only on your own turn" rule change are live in production (`main` @ `a3369df`, deployed 18:42 UTC). **New branch rule: milestone PRs now target the integration branch `overhaul/next`, not `main`; `overhaul/next` goes to `main` (and production) once, after M8.** Next up: M6 ("waking the table" cold-start screen, plus Playwright caching in CI), then M7 (iPhone Home Screen web app, plan with the owner first) and M8 (regression)._
 
 ## How to resume
 
@@ -15,6 +15,7 @@ _Last updated: 2026-10-27 — Milestones 2–4 are live in production (M4 deploy
 
 - Roles: Claude is project manager, architect, design lead, and QA; Codex implements scoped tasks. Claude reviews every Codex diff, runs the tests, and checks rendered screenshots before anything is committed.
 - **`main` deploys to production.** `render.yaml` uses `autoDeployTrigger: checksPass` on `main`. All work happens on `overhaul/*` branches with one PR per milestone; merging requires the owner's explicit approval.
+- **Integration branch (owner, 2026-10-27):** because each deploy waits on the slow CI browser install, milestone branches start from and open PRs into **`overhaul/next`**, which does not deploy. Each PR still gets Claude's full review, tests and screenshots, and CI (the workflow runs on every PR). Merging into `overhaul/next` still needs the owner's approval. After M8's regression passes, `overhaul/next` goes to `main` in one PR, with the owner's approval: one deploy at the end. Production stays at M5 until then; show the owner new work through screenshots or a local run. Open question for M7: "Add to Home Screen" needs a real HTTPS address on the iPhone, so decide with the owner whether M7 needs one early deploy.
 - Budget is $0. No paid services, dependencies, or hosting changes without approval. Do not migrate off Render without approval.
 - Players: two people (the owner and one partner). Priority devices: desktop and **iPhone 15 Plus Safari, portrait**. No real-device testing service; use Playwright WebKit emulation and list what remains unverified.
 
@@ -28,13 +29,15 @@ _Last updated: 2026-10-27 — Milestones 2–4 are live in production (M4 deploy
 
 ## Current state
 
-- 2026-10-27, with the owner's explicit approval: [PR #6](https://github.com/InxlingGamer/palace-online/pull/6) (pickup on your own turn) merged into `main` as `0785602`; `main` was then merged into `overhaul/m5-iphone-hand` (conflicts in the scenario list, `package.json` and this file resolved to keep both the `pickup-own-turn` rename and `big-hand`), and [PR #7](https://github.com/InxlingGamer/palace-online/pull/7) (M5) merges after its CI passes. Start M6 on a new branch from the updated `main`; **never merge without the owner's approval** (merging deploys to production).
+- Active branch: **`overhaul/next`** (integration branch, created from `main` @ `a3369df`). Start M6 on `overhaul/m6-…` from `overhaul/next` and open its PR into `overhaul/next`. **Never merge without the owner's approval**, and never into `main` before M8 is done.
+- 2026-10-27, with the owner's explicit approval: [PR #6](https://github.com/InxlingGamer/palace-online/pull/6) (pickup on your own turn) merged into `main` as `0785602` (17:27 UTC); `main` CI passed and Render deployed it (the live bundle has the own-turn check in `canPickUpPile`). `main` was then merged into `overhaul/m5-iphone-hand` (conflicts in the scenario list, `package.json` and this file resolved to keep both the `pickup-own-turn` rename and `big-hand`; `pnpm check` 106/106, main e2e 12/12, all scenario suites passed), PR CI passed, and [PR #7](https://github.com/InxlingGamer/palace-online/pull/7) (M5) merged as `a3369df` (17:41 UTC). `main` CI passed at 18:41 and Render deployed at 18:42: `/healthz` OK and the live bundle `index-7yjX5ki1.js` matches the local build of the merged branch.
+- That `main` CI run took an hour: `playwright install --with-deps` ran **54 min** (17:41–18:35) on the slow Ubuntu mirror; the tests took 6 min. This prompted the integration-branch rule above.
 - M4 merged 2026-10-27 06:46 UTC with the owner's approval ([PR #4](https://github.com/InxlingGamer/palace-online/pull/4) → `cb1691e`). `main` CI passed (quality + browser) and Render deployed it at about 06:53 UTC: `/healthz` OK, the live bundle contains the M4 hand code, and `/cards/court-king.webp` is served.
 - M4 mockup, approved by the owner 2026-10-27: [Palace felt table mockup](https://claude.ai/artifact/QKGHDTgYMXbDyFfBcMiZPM), a private design canvas (only the owner can open it unless shared). Frames: desktop on your turn and with a 22-card hand; iPhone 15 Plus (Safari 430×739) on your turn, on Ben's turn and with a 22-card hand; card sheet; card component; plus a DEFERRED row (Home Screen app, icon).
 - Verification for M4: 99/99 Vitest tests (baseline 75), 4/4 typechecks, ESLint, Prettier, production build; Playwright main suite 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape) with new no-page-overflow and hidden-scrollbar checks; scenario suites 18/18. Screenshots of every screen reviewed at 1366×768, 1920×1080, iPhone portrait 430×739 and iPhone landscape (`output/audit/shots/`, local only).
 - Merged 2026-10-26 with the owner's explicit approval (merge commits, not squash): PR #1 (M2) → `edb6dbb`; PR #2 (M3) → `1ac0278`; [PR #3](https://github.com/InxlingGamer/palace-online/pull/3) (CI test fix) → `f3fafc2`. Render deployed M2 at 20:58 UTC and M3 at 22:12 UTC; `/healthz` OK; the live client bundle contains the M3 code; the main browser suite passed 6/6 against production (desktop Chromium, iPhone portrait).
 - PR #3 context: `main` CI for the M3 merge failed twice because `page.reload()` crashed the page ("Page crashed") in iPhone-emulated WebKit on GitHub's Linux runners. It's intermittent, never reproduced on Windows, and reduced motion didn't prevent it. The final-play rejoin reload check now runs only on desktop Chromium; the final-card hold is still tested on every device. That blocked the M3 deploy until PR #3 merged.
-- **GitHub runner slowness, 2026-10-26:** the `browser` job's `playwright install --with-deps` step took 10–46 min several times because `azure.archive.ubuntu.com` was crawling (packages timing out and falling back to `archive.ubuntu.com`). It isn't frozen: cancelling restarts the same slow download, so prefer waiting. One run also timed out a long-standing M2 test on a slow runner. Suggested follow-up (not done): cache Playwright browsers and/or add `timeout-minutes` to the install step so a real hang fails fast.
+- **GitHub runner slowness, 2026-10-26:** the `browser` job's `playwright install --with-deps` step took 10–46 min several times because `azure.archive.ubuntu.com` was crawling (packages timing out and falling back to `archive.ubuntu.com`). It isn't frozen: cancelling restarts the same slow download, so prefer waiting. One run also timed out a long-standing M2 test on a slow runner. Suggested follow-up (not done; planned as the first task of M6): cache Playwright browsers and/or add `timeout-minutes` to the install step so a real hang fails fast. It recurred on 2026-10-27 (54 min).
 - Milestones 1–3 are complete and deployed.
 - Verification for M2: 65/65 Vitest tests (3 consecutive runs), 4/4 typechecks, ESLint, Prettier; Playwright 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape) including a new simultaneous-draw test; scenario suites 9/9. The original reproduction now accepts simultaneous draws, a play racing an opponent draw, and double draws.
 - Baseline before M2: 43 unit/integration tests.
@@ -120,7 +123,7 @@ Work (Codex brief, Claude review):
 - A rAF-throttled scroll handler that doesn't re-render the cards.
 - A `big-hand` test scenario (26 cards) with browser tests on desktop Chromium, iPhone portrait and landscape, including a real CDP touch swipe in mobile-emulated Chromium and a rough frame-time guard.
 
-### M5 implementation (2026-10-27, done; merge approved by the owner)
+### M5 implementation (2026-10-27, done; merged and deployed)
 
 - Codex implemented it as briefed: `hand-gesture.ts` (`isTap`, `selectedVisibility`, thresholds `TAP_DISTANCE` 10, `TAP_SCROLL_DELTA` 2, `GLIDE_IDLE_MS` 80, `MIN_VISIBLE_STRIP` 12), `hand.tsx` (passive pointer listeners on the scroll box, capture-phase click guard for touch/pen only, `contextmenu` blocked, rAF-throttled edge/badge state, `.hand-selected--left/right` badge buttons, nudge on select), `.game-shell` `touch-action: manipulation` + no text selection, `-webkit-touch-callout: none` on the hand. Landscape now also uses the 24 px minimum strip (it inherited 22). Scenario `big-hand` (26 cards, 52 distinct physical cards); the scenario config runs it on iPhone portrait at 430×739.
 - Codex's sandbox could not start Vitest or Playwright (`spawn EPERM`); Claude ran everything.
@@ -151,7 +154,7 @@ Work (Codex brief, Claude review):
 | 2   | Multiplayer reliability, server crash fixes, lifecycle timers       | done; merged and deployed  |
 | 3   | Requested rules: pick up anytime; show final card before result     | done; merged and deployed  |
 | 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; merged and deployed  |
-| 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | done; merge approved       |
+| 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | done; merged and deployed  |
 | 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | approved, not started      |
 | 7   | iPhone Home Screen web app (plan hosting with Render first)         | not started; needs plan    |
 | 8   | Regression testing and final QA                                     | not started                |
@@ -202,7 +205,8 @@ Work (Codex brief, Claude review):
 
 ## Open questions for the owner
 
-- M6 (cold-start screen) is approved and next; no open questions yet.
+- M6 (cold-start screen) is approved and next; it targets `overhaul/next`. No open questions yet.
+- M7: does the Home Screen app need one early deploy to test on the iPhone (see the integration-branch rule)?
 - M7 (Home Screen web app): details and hosting (stay on Render or switch) to be decided with the owner when M7 starts.
 
 ## Verification status and unverified areas
