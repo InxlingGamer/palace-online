@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import path from "node:path";
+import { readFileSync } from "node:fs";
 import { parse as parseCookie } from "cookie";
 import cookieParser from "cookie-parser";
 import cors from "cors";
@@ -16,7 +17,26 @@ const bootId = randomUUID();
 
 const COOKIE_NAME = "palace_session";
 
-export function createRuntime(config: ServerConfig) {
+export function createRuntime(config: ServerConfig, options: { clientDirectory?: string } = {}) {
+  const clientDirectory =
+    options.clientDirectory ?? path.resolve(process.cwd(), "apps/client/dist");
+  let buildId: string | null = null;
+  if (config.NODE_ENV === "production" || options.clientDirectory) {
+    try {
+      const build: unknown = JSON.parse(
+        readFileSync(path.join(clientDirectory, "build.json"), "utf8"),
+      );
+      if (
+        build &&
+        typeof build === "object" &&
+        "buildId" in build &&
+        typeof build.buildId === "string"
+      )
+        buildId = build.buildId;
+    } catch {
+      /* Development and incomplete builds have no build identity. */
+    }
+  }
   const app = express();
   if (config.TRUST_PROXY) app.set("trust proxy", 1);
   app.use(helmet({ contentSecurityPolicy: false }));
@@ -70,7 +90,7 @@ export function createRuntime(config: ServerConfig) {
 
   app.get("/healthz", (_request, response) => {
     response.set("Cache-Control", "no-store");
-    response.json({ status: "ok", uptime: Math.round(process.uptime()), bootId });
+    response.json({ status: "ok", uptime: Math.round(process.uptime()), bootId, buildId });
   });
 
   app.post("/api/rooms", createLimiter, (request, response) => {
@@ -202,12 +222,25 @@ export function createRuntime(config: ServerConfig) {
     }
   });
 
-  if (config.NODE_ENV === "production") {
-    const clientDirectory = path.resolve(process.cwd(), "apps/client/dist");
-    app.use(express.static(clientDirectory, { maxAge: "1h", index: false }));
-    app.get("/{*path}", (_request, response) =>
-      response.sendFile(path.join(clientDirectory, "index.html")),
+  if (config.NODE_ENV === "production" || options.clientDirectory) {
+    app.use(
+      express.static(clientDirectory, {
+        maxAge: "1h",
+        index: false,
+        setHeaders(response, file) {
+          response.setHeader("X-Palace-App", "1");
+          if (["sw.js", "index.html", "build.json"].includes(path.basename(file)))
+            response.setHeader("Cache-Control", "no-cache");
+          if (file.endsWith("manifest.webmanifest"))
+            response.setHeader("Content-Type", "application/manifest+json");
+        },
+      }),
     );
+    app.get("/{*path}", (_request, response) => {
+      response.set("X-Palace-App", "1");
+      response.set("Cache-Control", "no-cache");
+      response.sendFile(path.join(clientDirectory, "index.html"));
+    });
   }
 
   app.use(

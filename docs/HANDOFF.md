@@ -2,15 +2,15 @@
 
 Living status document for the 2026 audit and overhaul. Keep it current at every checkpoint so any new chat can pick up from here. Read this first, then `README.md`, `docs/ARCHITECTURE.md`, and `docs/RULES.md`.
 
-_Last updated: 2026-10-27 (end of chat) — Production (`main` @ `a3369df`) runs M2–M5 plus the "pick up only on your own turn" rule. The integration branch **`overhaul/next` @ `9e2f606`** additionally holds M6 (faster CI, waking-the-table feedback, [PR #8](https://github.com/InxlingGamer/palace-online/pull/8)) and the **Classic and Simple card decks with the lobby deck picker** ([PR #9](https://github.com/InxlingGamer/palace-online/pull/9)), both owner-approved and not deployed. Branch rule: milestone PRs target `overhaul/next`, which goes to `main` (and production) once, after M8. **Next: build M7 (iPhone Home Screen web app)** on `overhaul/m7-home-screen`. The plan and the owner's decisions are under "Milestone 7 plan". Then M8 (regression)._
+_Last updated: 2026-10-27 (end of chat) — Production (`main` @ `a3369df`) runs M2–M5 plus the "pick up only on your own turn" rule. The integration branch **`overhaul/next` @ `9e2f606`** additionally holds M6 (faster CI, waking-the-table feedback, [PR #8](https://github.com/InxlingGamer/palace-online/pull/8)) and the **Classic and Simple card decks with the lobby deck picker** ([PR #9](https://github.com/InxlingGamer/palace-online/pull/9)), both owner-approved and not deployed. Branch rule: milestone PRs target `overhaul/next`, which goes to `main` (and production) once, after M8. **M7 (iPhone Home Screen web app) is built** on `overhaul/m7-home-screen`, with its PR open into `overhaul/next` and not merged. Next: the owner creates the free staging service, points it at the M7 branch, tests on the iPhone, then approves the merge (or asks for fixes). Then M8 (regression)._
 
 ## Start here (next chat)
 
 1. Read this file, then `README.md`, `docs/ARCHITECTURE.md` and `docs/RULES.md`. Follow the working agreements below.
-2. Check out **`overhaul/m7-home-screen`** (it's even with `overhaul/next` @ `9e2f606` plus this handoff commit) and run `git -c safe.directory=* status`.
-3. **Ask the owner first** whether the free staging service exists yet (settings under "Milestone 7 plan"), and get its URL. Without it, M7 can be built and tested only in emulation.
-4. Then implement M7 as planned: manifest and icon E; true full screen behind the status bar and Dynamic Island; the service-worker app shell with our own waking screen; auto-rejoin to the last table. Brief Codex with a detailed prompt, then review the diff, run every check and review screenshots before committing.
-5. Open M7's PR into `overhaul/next` and ask before merging. Never merge into `main` before M8, and never without the owner's explicit approval.
+2. Check out **`overhaul/m7-home-screen`** and run `git -c safe.directory=* status`. M7 is built and its PR into `overhaul/next` is open (see "M7 implementation").
+3. Waiting on the owner: create the free staging service (settings under "Milestone 7 plan"), temporarily set its branch to `overhaul/m7-home-screen`, add it to the iPhone Home Screen and test (the checklist is in the PR). Then switch staging back to `overhaul/next`. Fix anything found on the M7 branch and re-test.
+4. Ask the owner whether to rebalance the portrait table for the taller 430×932 standalone screen (see "Known and not changed").
+5. Merge M7's PR into `overhaul/next` only with the owner's explicit approval. Never merge into `main` before M8, and never without the owner's explicit approval.
 6. Other open owner items: whether to build a private deck slot (the owner adds scans of a deck they own; it's never committed); per-suit court figures (a possible follow-up); the M6 cold-start check on a real iPhone.
 
 ## How to resume
@@ -253,6 +253,29 @@ Work (Codex brief, Claude review):
 - Cost: $0. Free services share 750 instance-hours a month, but a sleeping service uses none, so two mostly idle services fit.
 - It starts on M6, so it also allows the M6 cold-start check on a real iPhone before M7 lands.
 
+### M7 implementation (2026-10-27, built; PR into `overhaul/next` pending owner approval)
+
+- Codex built it from a detailed brief (`manifest.webmanifest`, head tags, icon E vector sources + `scripts/render-icons.mjs`, `--safe-*` custom properties, the hand-written service worker, `BootGate` + `WakingScreen`, `storage.ts` + `rejoin.ts`, `X-Palace-App`/`buildId` on the server, a CI push trigger for `overhaul/next`, tests and docs). Codex's sandbox can't run Vitest or Playwright; Claude rendered the icons and ran everything.
+- How it works:
+  - **Service worker** (`apps/client/src/sw/service-worker.ts`, compiled into an unhashed `sw.js` by an inline Vite plugin). It precaches the shell, JS/CSS, woff2/ttf fonts, the manifest, icons and card art. Navigations go to the network first (3 s), and a response is accepted only with `X-Palace-App: 1`; otherwise the cached shell is served. `/api`, `/socket.io` and `/healthz` are never intercepted. A new worker skips waiting and claims clients.
+  - **Build identity:** a hash of the bundle file names, patched into the app and written to `dist/build.json`. The server reads it at startup and reports `buildId` in `/healthz`. A cached shell older than the server reloads once (guarded per build in `sessionStorage`).
+  - **Boot gate:** `/healthz` is checked before the app mounts. If it answers within 1.5 s, nothing shows. Otherwise the full-screen waking screen polls every ~2 s, each attempt allowed 5 s. When the device is offline it says "You're offline. Waiting for a connection…".
+  - **Storage:** `localStorage` keys `palace-name`, `palace-last-room` and `palace-boot-<ROOM>`, plus the deal and result markers (pruned to the 10 newest). Opening "/" with a saved room rejoins it through the same path as `/room/<CODE>`. Failure shows the lobby with the name filled in and "Your last table ended." (or the restart copy). "Return home" forgets the room.
+  - **Icons:** `apps/client/public/icons/` holds apple-touch-icon 180, 192, 512, maskable 512 and favicon 32 (PNGs committed, about 420 KB in total). The vector sources are in `apps/client/icons/`.
+  - **Tests:** a new `playwright.pwa.config.ts` (`pnpm test:e2e:pwa`, which builds first, then runs Chromium desktop plus Pixel 7) runs against the production server on port 4180 and is part of CI's browser job.
+- Claude review fixes:
+  - Each boot `/healthz` attempt aborted at 1.5 s, so on a slow network a warm server could never get through the gate. Attempts now get 5 s; the waking screen still appears at 1.5 s.
+  - A failed restore cleared the saved room even when the link was an invite to someone else's table, and an invitee without a seat was told "Your last table ended.". Now the saved room is forgotten only when it was that room, and the notice shows only for a table this device sat at (decided once at mount, because React StrictMode runs the restore effect twice in dev and the first run had already cleared the room).
+  - Removed `favicon.svg`: it was a 177 KB copy of the source with the card back embedded, and it was precached.
+  - The precache no longer includes the `.woff` fallbacks.
+  - The PWA config now calls `pnpm`, as the other configs do, rather than `corepack pnpm`.
+  - Fixed a hairline seam between the palace and its base on the waking screen.
+  - The offline PWA test now accounts for Chromium's offline emulation not reaching a document the worker served (`navigator.onLine` reads true there). It checks the cached shell first, then toggles offline to check the copy.
+  - Docs: the PNGs are committed, so there's no render-before-build step.
+- Screenshots (`output/audit/shots/m7/`, local; harness `output/audit/m7-shots.ts`): the waking screen, lobby and table at desktop 1366/1920, iPhone standalone 430×932 with simulated insets (59/34), Safari 430×739 and landscape 932×430 (insets 59/21/59). With insets, the header runs from y=0 in walnut with its controls from y=72, the dock reaches the bottom edge with its last button at 897 (≤ 898), and no page overflows anywhere.
+- Verification (Claude, 2026-10-27): `pnpm check` (Prettier, ESLint, 4/4 typechecks, 158/158 Vitest, baseline 146; production build). Main browser suite: 56 passed, 8 skipped (the mobile reload skips). All six scenario suites passed (25). PWA suite 6/6 (also 6/6 twice more during review).
+- Known and not changed (ask the owner): at the standalone 430×932 height, the portrait table leaves a tall empty felt band between the opponent's field and the piles, because the layout was tuned for Safari's 739. In landscape at 932 px wide, the room chip fills the 44 px header edge to edge (unchanged since M6).
+
 **Not verifiable without the real iPhone (check on staging):** how the status-bar strip looks behind the Dynamic Island, the launch screen, service-worker behaviour after iOS evicts storage, and a real cold start from the Home Screen.
 
 ## After Milestone 3
@@ -276,7 +299,7 @@ Work (Codex brief, Claude review):
 | 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; merged and deployed  |
 | 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | done; merged and deployed  |
 | 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | done; in `overhaul/next`   |
-| 7   | iPhone Home Screen web app (plan hosting with Render first)         | planned; next to build     |
+| 7   | iPhone Home Screen web app (plan hosting with Render first)         | built; PR open, not merged |
 | 8   | Regression testing and final QA                                     | not started                |
 
 ## Task tracker
@@ -303,7 +326,7 @@ Work (Codex brief, Claude review):
 | M6-1 | CI: run browser tests in the official Playwright container (no apt install), version guard, 30 min timeout                                                                                                                                  | P1  | done   | Claude | —       | CI                         | yes      |
 | M6-2 | Waking banner for an open page, `bootId` restart detection and copy, `api()` retry on waking responses, tests                                                                                                                               | P1  | done   | Codex  | —       | client, server `/healthz`  | yes      |
 | D-1  | Card decks: Classic and Simple (Codex art + samples, Claude review), SVG card renderer, lobby "Your cards" picker, per-device preference; PR #9                                                                                             | P1  | done   | Codex  | —       | client, assets, e2e        | yes      |
-| M7-1 | Home Screen web app: manifest + icon E, full screen behind status bar, service-worker shell + waking screen, auto-rejoin, staging                                                                                                           | P1  | todo   | Codex  | staging | client, server headers     | yes      |
+| M7-1 | Home Screen web app: manifest + icon E, full screen behind status bar, service-worker shell + waking screen, auto-rejoin, staging                                                                                                           | P1  | built  | Codex  | staging | client, server headers     | emulated |
 
 ## Key audit findings (summary)
 
@@ -329,7 +352,8 @@ Work (Codex brief, Claude review):
 
 ## Open questions for the owner
 
-- Does the free staging service exist yet (its URL)? M7 needs it for real-iPhone testing.
+- Does the free staging service exist yet (its URL)? M7 needs it for real-iPhone testing before its merge.
+- M7: rebalance the portrait table for the taller standalone screen (430×932), or keep the M4 layout?
 - Build a private deck slot for a deck the owner scans (never committed)? Not yet agreed.
 - Per-suit court figures for either deck? A possible follow-up.
 - M7: create the free staging service in Render (settings in "Milestone 7 plan"); Claude can't do it from here.

@@ -32,6 +32,16 @@ import { deriveVisualEvents } from "./visual-events";
 import { api, currentBootId, rememberBootId, storedBootId, ServerWakingError } from "./api";
 import { serverRestarted, wakingBanner, WAKING_DELAY_MS } from "./server-wake";
 
+import {
+  forgetRoom,
+  loadSaved,
+  markPresented,
+  rememberRoom,
+  savedName,
+  savedRoom,
+} from "./storage";
+import { rejoinNotice } from "./rejoin";
+
 const rankValue = new Map<Rank, number>(NORMAL_RANKS.map((rank, index) => [rank, index]));
 const handRanks = [Rank.Two, ...NORMAL_RANKS] as const;
 const handRankValue = new Map<Rank, number>(handRanks.map((rank, index) => [rank, index]));
@@ -157,7 +167,7 @@ function Lobby({
   notice: string;
   onEnter: (state: PublicGameState) => void;
 }) {
-  const [name, setName] = useState("");
+  const [name, setName] = useState(savedName);
   const [code, setCode] = useState(initialCode);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -174,6 +184,7 @@ function Lobby({
         { method: "POST", body: JSON.stringify({ name }) },
         () => setWaking(true),
       );
+      rememberRoom(result.roomCode, name.trim());
       await rememberBootId(result.roomCode);
       window.history.pushState({}, "", `/room/${result.roomCode}`);
       onEnter(result.state);
@@ -263,7 +274,17 @@ function Lobby({
 }
 
 export function App() {
-  const initialRoom = useMemo(roomFromPath, []);
+  const pathRoom = useMemo(roomFromPath, []);
+  const initialRoom = useMemo(
+    () => pathRoom ?? (window.location.pathname === "/" ? savedRoom() : null),
+    [pathRoom],
+  );
+  // Decided once at mount: a failed restore below forgets the saved room.
+  const ownRoom = useMemo(
+    () =>
+      initialRoom !== null && (savedRoom() === initialRoom || storedBootId(initialRoom) !== null),
+    [initialRoom],
+  );
   const [state, setState] = useState<PublicGameState | null>(null);
   const [loadingRoom, setLoadingRoom] = useState(Boolean(initialRoom));
   const [loadingWaking, setLoadingWaking] = useState(false);
@@ -360,6 +381,8 @@ export function App() {
       .then(async ({ state: restored }) => {
         await rememberBootId(initialRoom);
         if (!active) return;
+        rememberRoom(initialRoom);
+        window.history.replaceState({}, "", `/room/${initialRoom}`);
         snapshotRef.current = restored;
         setState(restored);
         connect(initialRoom);
@@ -369,14 +392,12 @@ export function App() {
           if (active) setNotice(reason.message);
           return;
         }
+        // An invite link to a table we never sat at keeps our saved table and needs no notice.
+        if (savedRoom() === initialRoom) forgetRoom();
+        if (!ownRoom) return;
         const stored = storedBootId(initialRoom);
         const current = await currentBootId();
-        if (active)
-          setNotice(
-            serverRestarted(stored, current)
-              ? "Your last table closed while the server was asleep. Create or join a new one."
-              : "That saved room session has expired. Create or join another room.",
-          );
+        if (active) setNotice(rejoinNotice(stored, current));
       })
       .finally(() => {
         if (active) setLoadingRoom(false);
@@ -384,7 +405,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [connect, initialRoom]);
+  }, [connect, initialRoom, ownRoom]);
 
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
@@ -417,8 +438,8 @@ export function App() {
 
       for (const event of events) {
         if (event.type === "starting-deal") {
-          if (sessionStorage.getItem(`palace-deal-${event.gameId}`)) continue;
-          sessionStorage.setItem(`palace-deal-${event.gameId}`, "true");
+          if (loadSaved(`palace-deal-${event.gameId}`)) continue;
+          markPresented(`palace-deal-${event.gameId}`);
           for (let index = 0; index < 3; index += 1)
             nextFlights.push({
               key: `${event.gameId}-hidden-${index}`,
@@ -538,13 +559,13 @@ export function App() {
     resultGameRef.current = state.gameId;
     setPresentedResult(null);
     const key = `palace-result-${state.gameId}-${state.you.id}`;
-    const alreadyPresented = sessionStorage.getItem(key) === "true";
+    const alreadyPresented = loadSaved(key) === "true";
     const present = () => {
       resultTimerRef.current = null;
       setAnimateResult(!alreadyPresented);
       setPresentedResult(state.gameId);
       if (!alreadyPresented) {
-        sessionStorage.setItem(key, "true");
+        markPresented(key);
         sound.play(state.winnerId === state.you.id ? "win" : "lose");
       }
     };
@@ -608,7 +629,7 @@ export function App() {
         <p role="status">{loadingWaking ? "Waking the table…" : "Reconnecting…"}</p>
       </main>
     );
-  if (!state) return <Lobby initialCode={initialRoom ?? ""} onEnter={enter} notice={notice} />;
+  if (!state) return <Lobby initialCode={pathRoom ?? ""} onEnter={enter} notice={notice} />;
 
   const banner = wakingBanner(
     connection === "connected",
@@ -664,6 +685,7 @@ export function App() {
   };
 
   const leaveToLobby = () => {
+    forgetRoom();
     senderRef.current?.dispose();
     senderRef.current = null;
     setPending(false);
@@ -1015,13 +1037,7 @@ export function App() {
                   : "The table could not be restored."}
               </span>
             </div>
-            <button
-              className="button button--gold"
-              onClick={() => {
-                window.history.pushState({}, "", "/");
-                setState(null);
-              }}
-            >
+            <button className="button button--gold" onClick={leaveToLobby}>
               Return home
             </button>
           </>

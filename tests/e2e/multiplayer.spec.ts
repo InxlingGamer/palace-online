@@ -1,5 +1,147 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
+test("Home Screen metadata and full-size icons are available", async ({ page, request }) => {
+  await page.goto("/");
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute(
+    "href",
+    "/manifest.webmanifest",
+  );
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute(
+    "href",
+    "/icons/apple-touch-icon.png",
+  );
+  for (const [name, content] of [
+    ["apple-mobile-web-app-capable", "yes"],
+    ["mobile-web-app-capable", "yes"],
+    ["apple-mobile-web-app-status-bar-style", "black-translucent"],
+    ["apple-mobile-web-app-title", "Palace"],
+  ])
+    await expect(page.locator(`meta[name="${name}"]`)).toHaveAttribute("content", content!);
+  const manifest = await request.get("/manifest.webmanifest");
+  const body: unknown = await manifest.json();
+  expect(body).toMatchObject({
+    name: "Palace Online",
+    short_name: "Palace",
+    display: "standalone",
+    icons: [
+      { src: "/icons/icon-192.png", sizes: "192x192", purpose: "any" },
+      { src: "/icons/icon-512.png", sizes: "512x512", purpose: "any" },
+      { src: "/icons/icon-maskable-512.png", sizes: "512x512", purpose: "maskable" },
+    ],
+  });
+  for (const [url, size] of [
+    ["icon-192.png", 192],
+    ["icon-512.png", 512],
+    ["icon-maskable-512.png", 512],
+    ["apple-touch-icon.png", 180],
+    ["favicon-32.png", 32],
+  ] as const) {
+    const response = await request.get(`/icons/${url}`);
+    expect(response.headers()["content-type"]).toContain("image/png");
+    const dimensions = await page.evaluate(async (src) => {
+      const image = new Image();
+      image.src = src;
+      await image.decode();
+      return [image.naturalWidth, image.naturalHeight];
+    }, `/icons/${url}`);
+    expect(dimensions).toEqual([size, size]);
+  }
+});
+
+test("home launch rejoins and an unknown room keeps the name", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("Display name").fill("Ada");
+  await page.getByRole("button", { name: "Create room" }).click();
+  await expect(page.getByRole("button", { name: /Copy invitation/ })).toBeVisible();
+  const roomURL = page.url();
+  await page.goto("/");
+  await expect(page).toHaveURL(roomURL);
+  // A missing room forgets the saved code, while preserving the display name.
+  await page.context().clearCookies();
+  await page.evaluate(() => localStorage.setItem("palace-last-room", "ZZZ999"));
+  await page.goto("/");
+  await expect(page.getByLabel("Display name")).toHaveValue("Ada");
+  await expect(page.getByRole("status")).toHaveText("Your last table ended.");
+  expect(await page.evaluate(() => localStorage.getItem("palace-last-room"))).toBeNull();
+});
+
+async function noOverflow(page: Page) {
+  expect(
+    await page.evaluate(() => [
+      document.documentElement.scrollWidth - innerWidth,
+      document.documentElement.scrollHeight - innerHeight,
+    ]),
+  ).toEqual([0, 0]);
+}
+
+test("boot waking and offline screens recover and clear simulated safe areas", async ({
+  page,
+  context,
+}) => {
+  await page.setViewportSize({ width: 430, height: 932 });
+  await page.route("**/healthz", () => undefined);
+  await page.goto("/");
+  await page.addStyleTag({ content: ":root { --safe-top: 59px; --safe-bottom: 34px; }" });
+  await expect(page.getByRole("heading", { name: "Waking the table…" })).toBeVisible();
+  await expect(page.getByRole("status")).toContainText(
+    "The server naps after 15 quiet minutes. This can take about a minute.",
+  );
+  expect((await page.locator(".waking-content").boundingBox())!.y).toBeGreaterThanOrEqual(59);
+  await noOverflow(page);
+  for (const viewport of [
+    { width: 1366, height: 768 },
+    { width: 1920, height: 1080 },
+    { width: 430, height: 739 },
+    { width: 932, height: 430 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const landscape = viewport.height === 430;
+    await page.addStyleTag({
+      content: `:root { --safe-top: 0px; --safe-bottom: ${landscape ? 21 : 0}px; --safe-left: ${landscape ? 59 : 0}px; --safe-right: ${landscape ? 59 : 0}px; }`,
+    });
+    const content = (await page.locator(".waking-content").boundingBox())!;
+    expect(content.y).toBeGreaterThanOrEqual(0);
+    expect(content.x).toBeGreaterThanOrEqual(landscape ? 59 : 0);
+    expect(content.x + content.width).toBeLessThanOrEqual(viewport.width - (landscape ? 59 : 0));
+    expect(content.y + content.height).toBeLessThanOrEqual(viewport.height - (landscape ? 21 : 0));
+    await noOverflow(page);
+  }
+  await page.setViewportSize({ width: 430, height: 932 });
+  await page.addStyleTag({
+    content:
+      ":root { --safe-top: 59px; --safe-bottom: 34px; --safe-left: 0px; --safe-right: 0px; }",
+  });
+  await context.setOffline(true);
+  await expect(
+    page.getByRole("heading", { name: "You're offline. Waiting for a connection…" }),
+  ).toBeVisible();
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await context.setOffline(false);
+  await expect(page.getByLabel("Display name")).toBeVisible();
+  expect((await page.locator(".lobby-panel").boundingBox())!.y).toBeGreaterThanOrEqual(59);
+  await noOverflow(page);
+});
+
+test("standalone portrait header and dock fill the safe-area edges", async ({ page }) => {
+  await page.setViewportSize({ width: 430, height: 932 });
+  await page.goto("/");
+  await page.addStyleTag({ content: ":root { --safe-top: 59px; --safe-bottom: 34px; }" });
+  await page.getByLabel("Display name").fill("Ada");
+  await page.getByRole("button", { name: "Create room" }).click();
+  await expect(page.locator(".game-header")).toBeVisible();
+  const header = page.locator(".game-header");
+  expect((await header.boundingBox())!.y).toBe(0);
+  expect(await header.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
+    "rgb(42, 25, 16)",
+  );
+  expect((await page.locator(".room-chip").boundingBox())!.y).toBeGreaterThanOrEqual(59);
+  const dock = (await page.locator(".action-dock").boundingBox())!;
+  expect(dock.y + dock.height).toBe(932);
+  const button = (await page.locator(".action-dock button").last().boundingBox())!;
+  expect(button.y + button.height).toBeLessThanOrEqual(898);
+  await noOverflow(page);
+});
+
 async function createPlayer(context: BrowserContext, name: string): Promise<Page> {
   const page = await context.newPage();
   await page.goto("/");
@@ -273,11 +415,11 @@ for (const changedBoot of [true, false]) {
     await expect(page.locator(".connection--connected")).toBeVisible();
     const code = new URL(page.url()).pathname.split("/").at(-1)!;
     await expect
-      .poll(() => page.evaluate((room) => sessionStorage.getItem(`palace-boot-${room}`), code))
+      .poll(() => page.evaluate((room) => localStorage.getItem(`palace-boot-${room}`), code))
       .toBeTruthy();
     if (changedBoot)
       await page.evaluate(
-        (room) => sessionStorage.setItem(`palace-boot-${room}`, "fake-old-process"),
+        (room) => localStorage.setItem(`palace-boot-${room}`, "fake-old-process"),
         code,
       );
     await context.clearCookies();
@@ -285,7 +427,7 @@ for (const changedBoot of [true, false]) {
     await expect(page.getByRole("status")).toHaveText(
       changedBoot
         ? "Your last table closed while the server was asleep. Create or join a new one."
-        : "That saved room session has expired. Create or join another room.",
+        : "Your last table ended.",
     );
   });
 }
@@ -351,7 +493,7 @@ for (const changedBoot of [true, false]) {
     const code = new URL(page.url()).pathname.split("/").at(-1)!;
     if (changedBoot)
       await page.evaluate(
-        (room) => sessionStorage.setItem(`palace-boot-${room}`, "fake-old-process"),
+        (room) => localStorage.setItem(`palace-boot-${room}`, "fake-old-process"),
         code,
       );
     await upgraded;
@@ -365,6 +507,10 @@ for (const changedBoot of [true, false]) {
         ? "The server restarted while the table was quiet, so this game ended. Start a new table from home."
         : "The table could not be restored.",
     );
+    await page.getByRole("button", { name: "Return home" }).click();
+    await page.goto("/");
+    await expect(page.getByLabel("Display name")).toHaveValue("Ada");
+    await expect(page.getByRole("button", { name: /Copy invitation/ })).toHaveCount(0);
   });
 }
 
@@ -438,6 +584,7 @@ test("card choices persist and affect only this player's cards", async ({ page, 
     await page.reload();
     await expect(page.locator('.hand .card[data-deck="simple"]')).toHaveCount(6);
     await expect(page.locator('.field-row--you .card--back[data-back="felt"]')).toHaveCount(3);
+    await page.evaluate(() => localStorage.removeItem("palace-last-room"));
     await page.goto("/");
     await expect(page.getByRole("radio", { name: "Simple", exact: true })).toBeChecked();
     await expect(page.getByRole("radio", { name: "Felt", exact: true })).toBeChecked();

@@ -8,6 +8,12 @@ The public game is available at [palace-online-inxlinggamer.onrender.com](https:
 
 This first release runs on Render's free web-service tier. After 15 minutes without traffic, the service sleeps; the first visit after that can take about a minute to wake. A Render restart or new deployment ends active games because version one intentionally stores rooms in one process.
 
+## iPhone Home Screen app
+
+In Safari, open Palace, tap **Share → Add to Home Screen**, then launch Palace from its icon. The installed app runs full screen, with the walnut bar behind the status bar and controls clear of the home indicator. After one online launch caches the shell, later offline or sleeping-server launches show Palace's own waiting screen. The server must be online before a game can resume. Safari and the Home Screen app have separate seats and storage; joining by room code works in either. Return home forgets the last table and keeps your name.
+
+The icon PNGs in `apps/client/public/icons/` are committed. To change the icon, edit its SVG source and rerun `node scripts/render-icons.mjs` (it uses the installed Playwright Chromium); see [icon sources and rendering](apps/client/icons/README.md). Run `pnpm test:e2e:pwa` for the production worker tests (this builds first). Real iPhone launch, status-bar rendering and storage eviction require device verification.
+
 ## Technology
 
 - React 19, Vite, strict TypeScript, and responsive CSS
@@ -47,6 +53,7 @@ pnpm lint           # static analysis
 pnpm typecheck      # all workspace TypeScript projects
 pnpm test           # engine and server integration tests
 pnpm test:e2e       # Chromium and WebKit multiplayer/responsive tests
+pnpm test:e2e:pwa   # builds, then Chromium service-worker launch tests
 pnpm build          # production client and server
 pnpm check          # all non-browser checks and build
 ```
@@ -73,7 +80,7 @@ Or run the container locally:
 docker compose up --build
 ```
 
-Visit `http://localhost:3001`; the health endpoint is `GET /healthz`, returning `{ status, uptime, bootId }`. The random `bootId` changes on each server process restart. Open clients retry while Render wakes and explain when a restart has ended their in-memory table.
+Visit `http://localhost:3001`; the health endpoint is `GET /healthz`, returning `{ status, uptime, bootId, buildId }`. The random `bootId` changes on each server process restart; `buildId` identifies the client build or is null when unavailable. Open clients retry while Render wakes and explain when a restart has ended their in-memory table.
 
 For public deployment, use a persistent Node/container provider that supports long-lived WebSocket connections and sticky single-instance operation. Set the public URL and allowed origin to the HTTPS deployment URL, enable secure cookies, expose the configured `PORT`, and point the provider health check at `/healthz`. Do not deploy the multiplayer server as a short-lived serverless function.
 
@@ -119,7 +126,7 @@ Cards use inline SVG suits and two original decks: Classic and Simple. Choose yo
 
 - Rooms are held in one process. A server restart ends active games, and horizontal scaling requires sticky routing plus a shared room adapter/store.
 - There are no spectators, accounts, chat, ranked matchmaking, or saved match history.
-- A future version could add Redis-backed rooms, installable PWA support, player profiles, replay exports, localization, and optional rule variants.
+- A future version could add Redis-backed rooms, player profiles, replay exports, localization, and optional rule variants.
 
 The exact implemented rules are in [docs/RULES.md](docs/RULES.md), and the trust boundaries and protocol are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
