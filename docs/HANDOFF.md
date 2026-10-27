@@ -2,7 +2,7 @@
 
 Living status document for the 2026 audit and overhaul. Keep it current at every checkpoint so any new chat can pick up from here. Read this first, then `README.md`, `docs/ARCHITECTURE.md`, and `docs/RULES.md`.
 
-_Last updated: 2026-10-27 — **M6 is done: [PR #8](https://github.com/InxlingGamer/palace-online/pull/8) into `overhaul/next` awaits the owner's approval.** Milestones 2–5 and the "pick up only on your own turn" rule change are live in production (`main` @ `a3369df`, deployed 18:42 UTC). **New branch rule: milestone PRs now target the integration branch `overhaul/next`, not `main`; `overhaul/next` goes to `main` (and production) once, after M8.** Next up: M6 ("waking the table" cold-start screen, plus Playwright caching in CI), then M7 (iPhone Home Screen web app, plan with the owner first) and M8 (regression)._
+_Last updated: 2026-10-27 — Milestones 2–5 and the "pick up only on your own turn" rule change are live in production (`main` @ `a3369df`, deployed 18:42 UTC). **M6 (faster CI, waking-the-table feedback) is merged into the integration branch `overhaul/next`** ([PR #8](https://github.com/InxlingGamer/palace-online/pull/8) → `1896132`, owner-approved; not deployed). Branch rule: milestone PRs target `overhaul/next`, which goes to `main` (and production) once, after M8. Next up: **M7 (iPhone Home Screen web app): plan it with the owner before any code**, then M8 (regression)._
 
 ## How to resume
 
@@ -29,7 +29,7 @@ _Last updated: 2026-10-27 — **M6 is done: [PR #8](https://github.com/InxlingGa
 
 ## Current state
 
-- Active branch: **`overhaul/next`** (integration branch, created from `main` @ `a3369df`). Start M6 on `overhaul/m6-…` from `overhaul/next` and open its PR into `overhaul/next`. **Never merge without the owner's approval**, and never into `main` before M8 is done.
+- Integration branch **`overhaul/next`** (from `main` @ `a3369df`), now @ `1896132` with M6 merged. Active branch: **`overhaul/m7-home-screen`** (from `overhaul/next` @ `1896132`; so far only this handoff update). M7's PR goes into `overhaul/next`. **Never merge without the owner's approval**, and never into `main` before M8 is done.
 - 2026-10-27, with the owner's explicit approval: [PR #6](https://github.com/InxlingGamer/palace-online/pull/6) (pickup on your own turn) merged into `main` as `0785602` (17:27 UTC); `main` CI passed and Render deployed it (the live bundle has the own-turn check in `canPickUpPile`). `main` was then merged into `overhaul/m5-iphone-hand` (conflicts in the scenario list, `package.json` and this file resolved to keep both the `pickup-own-turn` rename and `big-hand`; `pnpm check` 106/106, main e2e 12/12, all scenario suites passed), PR CI passed, and [PR #7](https://github.com/InxlingGamer/palace-online/pull/7) (M5) merged as `a3369df` (17:41 UTC). `main` CI passed at 18:41 and Render deployed at 18:42: `/healthz` OK and the live bundle `index-7yjX5ki1.js` matches the local build of the merged branch.
 - That `main` CI run took an hour: `playwright install --with-deps` ran **54 min** (17:41–18:35) on the slow Ubuntu mirror; the tests took 6 min. This prompted the integration-branch rule above.
 - M4 merged 2026-10-27 06:46 UTC with the owner's approval ([PR #4](https://github.com/InxlingGamer/palace-online/pull/4) → `cb1691e`). `main` CI passed (quality + browser) and Render deployed it at about 06:53 UTC: `/healthz` OK, the live bundle contains the M4 hand code, and `/cards/court-king.webp` is served.
@@ -135,7 +135,7 @@ Work (Codex brief, Claude review):
 - Merge: PR #6 merged first; `main` was merged into this branch and the conflicts (scenario list in `config.ts` and `test-scenarios.ts`, root `package.json`, this file) resolved to keep both the `pickup-own-turn` rename and `big-hand`. Checks were rerun on the merged branch before PR #7 merged.
 - Windows note: switching branches with `core.autocrlf=true` rewrites some files with CRLF and Prettier then flags them; `corepack pnpm exec prettier --write <files>` restores LF with no content diff.
 
-## Milestone 6 (done; [PR #8](https://github.com/InxlingGamer/palace-online/pull/8) into `overhaul/next` awaits the owner's approval; branch `overhaul/m6-waking-table`)
+## Milestone 6 (done; [PR #8](https://github.com/InxlingGamer/palace-online/pull/8) merged into `overhaul/next` as `1896132` with the owner's approval, 2026-10-27; not deployed)
 
 - **CI fix (done, `6563958`):** the `browser` job now runs in the official `mcr.microsoft.com/playwright:v1.62.1-noble` container (`--user 1001`) instead of `playwright install --with-deps`, which waited on the Ubuntu apt mirror (up to 54 min). A step fails fast if the locked Playwright version and the image tag differ, so **bump the tag in `ci.yml` together with any Playwright upgrade**. The job has `timeout-minutes: 30`. First run on PR #8: browser job 5 min 43 s in total, including the image pull and the full e2e suite (previously 7 min at best, up to an hour).
 - **Finding:** Render's free tier [shows its own loading page](https://render.com/docs/free) to browsers while a sleeping service spins up (about 1 minute). Our client is served by the same server, so on a fresh page load our page can't show anything until the server is awake. Waking is a new process, so every in-memory room is gone.
@@ -168,16 +168,16 @@ Work (Codex brief, Claude review):
 
 ## Milestones
 
-| #   | Milestone                                                           | Status                      |
-| --- | ------------------------------------------------------------------- | --------------------------- |
-| 1   | Audit and prioritized findings                                      | done (approved 2026-10-26)  |
-| 2   | Multiplayer reliability, server crash fixes, lifecycle timers       | done; merged and deployed   |
-| 3   | Requested rules: pick up anytime; show final card before result     | done; merged and deployed   |
-| 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; merged and deployed   |
-| 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | done; merged and deployed   |
-| 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | done; PR #8 awaits approval |
-| 7   | iPhone Home Screen web app (plan hosting with Render first)         | not started; needs plan     |
-| 8   | Regression testing and final QA                                     | not started                 |
+| #   | Milestone                                                           | Status                     |
+| --- | ------------------------------------------------------------------- | -------------------------- |
+| 1   | Audit and prioritized findings                                      | done (approved 2026-10-26) |
+| 2   | Multiplayer reliability, server crash fixes, lifecycle timers       | done; merged and deployed  |
+| 3   | Requested rules: pick up anytime; show final card before result     | done; merged and deployed  |
+| 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; merged and deployed  |
+| 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | done; merged and deployed  |
+| 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | done; in `overhaul/next`   |
+| 7   | iPhone Home Screen web app (plan hosting with Render first)         | not started; needs plan    |
+| 8   | Regression testing and final QA                                     | not started                |
 
 ## Task tracker
 
@@ -227,7 +227,6 @@ Work (Codex brief, Claude review):
 
 ## Open questions for the owner
 
-- Approve merging M6 ([PR #8](https://github.com/InxlingGamer/palace-online/pull/8)) into `overhaul/next` (no deploy).
 - M7: does the Home Screen app need one early deploy to test on the iPhone (see the integration-branch rule)?
 - M7 (Home Screen web app): details and hosting (stay on Render or switch) to be decided with the owner when M7 starts.
 
