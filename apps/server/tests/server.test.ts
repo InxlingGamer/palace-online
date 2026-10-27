@@ -99,10 +99,21 @@ const reconnect = (socket: Socket) =>
   });
 
 describe("multiplayer turn conflict policy", () => {
-  it("broadcasts off-turn pickup and rejects a play carrying the old turn sequence", async () => {
-    const p = await pair({ TEST_GAME_SCENARIO: "pickup-anytime" });
+  it("rejects off-turn pickup without changing state", async () => {
+    const p = await pair({ TEST_GAME_SCENARIO: "pickup-own-turn" });
     await p.start();
-    const turn = p.record.state.currentTurnPlayerId;
+    const before = structuredClone(p.record.state);
+    expect(await p.send(p.b, { type: "PICK_UP_PILE" })).toMatchObject({
+      accepted: false,
+      error: { code: "NOT_YOUR_TURN" },
+    });
+    expect(p.record.state).toEqual(before);
+  });
+
+  it("broadcasts own-turn pickup with a legal card and rejects an old turn sequence", async () => {
+    const p = await pair({ TEST_GAME_SCENARIO: "pickup-own-turn" });
+    await p.start();
+    const nextTurn = p.record.state.players[1]!.id;
     const pile = [...p.record.state.playPile];
     const move = p.envelope({
       type: "PLAY_CARDS",
@@ -114,15 +125,15 @@ describe("multiplayer turn conflict policy", () => {
           new Promise<PublicGameState>((resolve) => client.once("state:snapshot", resolve)),
       ),
     );
-    expect((await p.send(p.b, { type: "PICK_UP_PILE" })).accepted).toBe(true);
+    expect((await p.send(p.a, { type: "PICK_UP_PILE" })).accepted).toBe(true);
     const [a, b] = await snapshots;
     for (const view of [a!, b!]) {
-      expect(view.currentTurnPlayerId).toBe(turn);
+      expect(view.currentTurnPlayerId).toBe(nextTurn);
       expect(view.playPile).toEqual([]);
     }
-    expect(a!.opponent!.handCount).toBe(3);
-    expect(b!.you.handCount).toBe(3);
-    expect(b!.you.hand).toEqual(expect.arrayContaining(pile));
+    expect(b!.opponent!.handCount).toBe(3);
+    expect(a!.you.handCount).toBe(3);
+    expect(a!.you.hand).toEqual(expect.arrayContaining(pile));
     expect(await p.a.emitWithAck("game:action", move)).toMatchObject({
       accepted: false,
       error: { code: "STALE_STATE" },
@@ -130,7 +141,7 @@ describe("multiplayer turn conflict policy", () => {
   });
 
   it("broadcasts lastPlay to both players after a play", async () => {
-    const p = await pair({ TEST_GAME_SCENARIO: "pickup-anytime" });
+    const p = await pair({ TEST_GAME_SCENARIO: "pickup-own-turn" });
     await p.start();
     const card = p.record.state.players[0]!.hand[0]!;
     const snapshots = Promise.all(

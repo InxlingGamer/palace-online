@@ -54,8 +54,11 @@ function state(overrides: Partial<PublicGameState> = {}): PublicGameState {
 }
 
 describe("canPickUpPile", () => {
-  it("allows pickup off-turn and with a legal hand card", () => {
-    expect(canPickUpPile(state({ currentTurnPlayerId: "B" }))).toBe(true);
+  it("rejects pickup off-turn", () => {
+    expect(canPickUpPile(state({ currentTurnPlayerId: "B" }))).toBe(false);
+  });
+
+  it("allows pickup on your turn with a legal hand card", () => {
     const view = state();
     view.you.hand = [card("ten", Rank.Ten)];
     expect(canPickUpPile(view)).toBe(true);

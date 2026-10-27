@@ -2,7 +2,7 @@
 
 Living status document for the 2026 audit and overhaul. Keep it current at every checkpoint so any new chat can pick up from here. Read this first, then `README.md`, `docs/ARCHITECTURE.md`, and `docs/RULES.md`.
 
-_Last updated: 2026-10-27 — Milestones 2 and 3 are live in production (`main` @ `54bdd98`). **Milestone 4 (classic green felt redesign) is implemented and verified on `overhaul/m4-felt-redesign`; its PR is open and awaiting the owner's approval to merge.** The iPhone Home Screen web app is deferred to a later milestone._
+_Last updated: 2026-10-27 — Milestones 2–4 are live in production (`main` @ `cb1691e`, M4 deployed about 06:53 UTC). **The owner-requested rule change "pick up the pile only on your own turn" is implemented and verified on `overhaul/pickup-own-turn`; its PR awaits the owner's approval.** Milestone 5 (iPhone hand) is in progress on `overhaul/m5-iphone-hand`._
 
 ## How to resume
 
@@ -28,7 +28,8 @@ _Last updated: 2026-10-27 — Milestones 2 and 3 are live in production (`main` 
 
 ## Current state
 
-- Active branch: `overhaul/m4-felt-redesign` (from `main` @ `54bdd98`). M4 PR open against `main`, awaiting the owner's approval; **do not merge without it** (merging deploys to production).
+- Active branches (both from `main` @ `cb1691e`): `overhaul/m5-iphone-hand` (M5, main checkout) and `overhaul/pickup-own-turn` (rule change, in the git worktree `../palace-pickup-own-turn`). Each gets its own PR; **do not merge without the owner's approval** (merging deploys to production).
+- M4 merged 2026-10-27 06:46 UTC with the owner's approval ([PR #4](https://github.com/InxlingGamer/palace-online/pull/4) → `cb1691e`). `main` CI passed (quality + browser) and Render deployed it at about 06:53 UTC: `/healthz` OK, the live bundle contains the M4 hand code, and `/cards/court-king.webp` is served.
 - M4 mockup, approved by the owner 2026-10-27: [Palace felt table mockup](https://claude.ai/artifact/QKGHDTgYMXbDyFfBcMiZPM), a private design canvas (only the owner can open it unless shared). Frames: desktop on your turn and with a 22-card hand; iPhone 15 Plus (Safari 430×739) on your turn, on Ben's turn and with a 22-card hand; card sheet; card component; plus a DEFERRED row (Home Screen app, icon).
 - Verification for M4: 99/99 Vitest tests (baseline 75), 4/4 typechecks, ESLint, Prettier, production build; Playwright main suite 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape) with new no-page-overflow and hidden-scrollbar checks; scenario suites 18/18. Screenshots of every screen reviewed at 1366×768, 1920×1080, iPhone portrait 430×739 and iPhone landscape (`output/audit/shots/`, local only).
 - Merged 2026-10-26 with the owner's explicit approval (merge commits, not squash): PR #1 (M2) → `edb6dbb`; PR #2 (M3) → `1ac0278`; [PR #3](https://github.com/InxlingGamer/palace-online/pull/3) (CI test fix) → `f3fafc2`. Render deployed M2 at 20:58 UTC and M3 at 22:12 UTC; `/healthz` OK; the live client bundle contains the M3 code; the main browser suite passed 6/6 against production (desktop Chromium, iPhone portrait).
@@ -94,6 +95,13 @@ The owner likes the design and asked for these changes:
 - Hand behaviour now covers most of M5's acceptance: 26 cards fit on desktop at 1366 wide (46 px strips) and on iPhone portrait about 16 cards fit; beyond that the row swipes with no visible scrollbar. M5 still owns tap-vs-swipe tuning, momentum feel and performance with 26+ cards.
 - Known limitations: the opponent's face-down hand on iPhone sits small under their field; desktop at 1920×1080 leaves generous empty felt (cards are capped at 96 px). Neither blocks play.
 
+### Rule change: pick up only on your own turn (owner, 2026-10-27)
+
+The owner revised the M3 pickup rule: "you should ONLY be able to pick up the pile when it is your turn but you can do it on ANY turn." Implemented interpretation: `PICK_UP_PILE` requires your turn (off-turn returns `NOT_YOUR_TURN`), but it is allowed on any of your turns, even when you hold a legal card. Unchanged: it ends your turn, it is blocked while a seven direction choice is pending, and it consumes a seven restriction targeting you. The client shows "Pick up pile" only on your turn. Scenario `pickup-anytime` becomes `pickup-own-turn`. It ships as its own PR, separate from M5.
+
+- Engine: `applyCommand` no longer exempts `PICK_UP_PILE` from the turn check; `applyPickup` always passes the turn. Client: `canPickUpPile` requires your turn. Server needs no change (the `expectedTurn` check already covers pickup).
+- Verification (Claude, 2026-10-27): 101/101 Vitest tests (baseline 99), 4/4 typechecks, ESLint, Prettier on changed files; `pickup-own-turn` browser scenario 3/3 (desktop Chromium, iPhone portrait, iPhone landscape); screenshots of both docks reviewed (off-turn: only a disabled full-width "Play cards" and "Waiting for Ada."; own turn with a legal 9: "Pick up pile" next to Play).
+
 ## After Milestone 3
 
 - **M4 redesign:** classic green felt. First produce a mockup of the table (desktop and iPhone portrait) for owner approval before implementation. Keep the join flow working. Cards: cream faces with proper pip layouts and original court-card treatment (no copyrighted art); one card-back design. Clear turn indicator, legal-card indication, last-move indicator, lobby with an invite/copy button, sounds on by default, reduced-motion support. Gate hover styles with `@media (hover: hover)`.
@@ -109,7 +117,7 @@ The owner likes the design and asked for these changes:
 | 1   | Audit and prioritized findings                                      | done (approved 2026-10-26) |
 | 2   | Multiplayer reliability, server crash fixes, lifecycle timers       | done; merged and deployed  |
 | 3   | Requested rules: pick up anytime; show final card before result     | done; merged and deployed  |
-| 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; PR awaiting approval |
+| 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; merged and deployed  |
 | 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | not started                |
 | 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | approved, not started      |
 | 7   | Regression testing and final QA                                     | not started                |
@@ -149,7 +157,7 @@ The owner likes the design and asked for these changes:
 - Conflict policy: only turn-changing actions are checked against a turn sequence; draws, ready, setup, rematch, and leave are validated by the engine without a revision precondition.
 - Legacy clients (no `expectedTurn`) keep the old strict revision check for turn actions.
 - Owner answers, 2026-10-26:
-  1. **Pick up anytime, regardless of whose turn it is** (M3). Interpretation to implement: allowed whenever the pile is non-empty and play is active, even with a legal move. On your own turn it ends your turn as today; off-turn it leaves the turn unchanged and consumes any seven restriction targeting you. Blocked only while a seven direction choice is pending (it resolves in a moment). An off-turn pickup changes the pile, so it bumps `turnSeq`; a play racing it gets the neutral "table changed" notice.
+  1. **Superseded 2026-10-27: pickup is now on your own turn only (any of your turns); see "Rule change" above.** Original M3 answer: **Pick up anytime, regardless of whose turn it is** (M3). Interpretation to implement: allowed whenever the pile is non-empty and play is active, even with a legal move. On your own turn it ends your turn as today; off-turn it leaves the turn unchanged and consumes any seven restriction targeting you. Blocked only while a seven direction choice is pending (it resolves in a moment). An off-turn pickup changes the pile, so it bumps `turnSeq`; a play racing it gets the neutral "table changed" notice.
   2. **Final-card reveal approved** (M3): show the last played card (even if it burned the pile) for ~1.5 s before WINNER/LOSER. Requires the server to expose the last play in the projection.
   3. **Large hands: a single sideways-scrolling hand, sorted as today** (M5), not rank stacks. Requirements: readable card corners at every size, momentum scroll with tap-vs-swipe disambiguation, no page scroll/zoom conflicts, selected cards stay visible, edge fade hints, nothing hidden under the action dock.
   4. **Stay on Render** and add a cold-start "waking the table" screen (M6).
@@ -157,7 +165,7 @@ The owner likes the design and asked for these changes:
 
 ## Open questions for the owner
 
-- Approve merging the M4 PR into `main` (deploys the redesign to production).
+- Approve merging the pickup-own-turn PR into `main` (deploys the rule change to production).
 
 ## Verification status and unverified areas
 

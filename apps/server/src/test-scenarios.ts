@@ -2,7 +2,7 @@ import type { GameState } from "@palace/game-engine";
 import { Rank, Suit, type Card } from "@palace/shared";
 
 export type TestGameScenario =
-  "seven-restriction" | "blind-pickup" | "finished-result" | "pickup-anytime" | "final-play";
+  "seven-restriction" | "blind-pickup" | "finished-result" | "pickup-own-turn" | "final-play";
 
 const card = (id: string, rank: Rank, suit = Suit.Spades): Card => ({ id, rank, suit });
 
@@ -30,7 +30,7 @@ export function applyTestScenario(state: GameState, scenario: TestGameScenario):
     return next;
   }
 
-  if (scenario === "pickup-anytime") {
+  if (scenario === "pickup-own-turn") {
     first.hand = [card("scenario-nine", Rank.Nine), card("scenario-four", Rank.Four)];
     second.hand = [
       card("scenario-queen", Rank.Queen, Suit.Hearts),

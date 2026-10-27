@@ -385,14 +385,11 @@ function applySetup(
 
 function applyPickup(state: GameState, player: PlayerState): EngineResult | null {
   if (state.playPile.length === 0) return fail("INVALID_PHASE", "There is no pile to pick up.");
-  const ownTurn = state.currentTurnPlayerId === player.id;
   if (state.restriction?.targetPlayerId === player.id) state.restriction = null;
   player.hand.push(...state.playPile);
   state.playPile = [];
-  if (ownTurn) {
-    state.stats.turnCount += 1;
-    state.currentTurnPlayerId = opponentOf(state, player.id).id;
-  }
+  state.stats.turnCount += 1;
+  state.currentTurnPlayerId = opponentOf(state, player.id).id;
   state.stats.pickups[player.id] = (state.stats.pickups[player.id] ?? 0) + 1;
   state.message = `${player.name} picked up the pile.`;
   return null;
@@ -482,11 +479,7 @@ export function applyCommand(
     else {
       if (state.pendingSevenChoiceFor && command.type !== "CHOOSE_SEVEN_DIRECTION")
         return fail("SEVEN_CHOICE_REQUIRED", "Choose higher or lower before continuing.");
-      if (
-        command.type !== "CHOOSE_SEVEN_DIRECTION" &&
-        command.type !== "PICK_UP_PILE" &&
-        state.currentTurnPlayerId !== playerId
-      )
+      if (command.type !== "CHOOSE_SEVEN_DIRECTION" && state.currentTurnPlayerId !== playerId)
         return fail("NOT_YOUR_TURN", "It is not your turn.");
       if (command.type === "PLAY_CARDS") error = playFromHand(state, player, command.cardIds);
       else if (command.type === "PICK_UP_PILE") error = applyPickup(state, player);
