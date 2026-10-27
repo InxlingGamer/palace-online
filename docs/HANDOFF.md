@@ -2,7 +2,16 @@
 
 Living status document for the 2026 audit and overhaul. Keep it current at every checkpoint so any new chat can pick up from here. Read this first, then `README.md`, `docs/ARCHITECTURE.md`, and `docs/RULES.md`.
 
-_Last updated: 2026-10-27 — Milestones 2–5 and the "pick up only on your own turn" rule change are live in production (`main` @ `a3369df`, deployed 18:42 UTC). **M6 (faster CI, waking-the-table feedback) is merged into the integration branch `overhaul/next`** ([PR #8](https://github.com/InxlingGamer/palace-online/pull/8) → `1896132`, owner-approved; not deployed). Branch rule: milestone PRs target `overhaul/next`, which goes to `main` (and production) once, after M8. Next up: **M7 (iPhone Home Screen web app)**: planned (staging site, auto-rejoin, full screen behind the status bar); waiting on the owner's icon pick and the staging service. Then M8 (regression)._
+_Last updated: 2026-10-27 (end of chat) — Production (`main` @ `a3369df`) runs M2–M5 plus the "pick up only on your own turn" rule. The integration branch **`overhaul/next` @ `9e2f606`** additionally holds M6 (faster CI, waking-the-table feedback, [PR #8](https://github.com/InxlingGamer/palace-online/pull/8)) and the **Classic and Simple card decks with the lobby deck picker** ([PR #9](https://github.com/InxlingGamer/palace-online/pull/9)), both owner-approved and not deployed. Branch rule: milestone PRs target `overhaul/next`, which goes to `main` (and production) once, after M8. **Next: build M7 (iPhone Home Screen web app)** on `overhaul/m7-home-screen`. The plan and the owner's decisions are under "Milestone 7 plan". Then M8 (regression)._
+
+## Start here (next chat)
+
+1. Read this file, then `README.md`, `docs/ARCHITECTURE.md` and `docs/RULES.md`. Follow the working agreements below.
+2. Check out **`overhaul/m7-home-screen`** (it's even with `overhaul/next` @ `9e2f606` plus this handoff commit) and run `git -c safe.directory=* status`.
+3. **Ask the owner first** whether the free staging service exists yet (settings under "Milestone 7 plan"), and get its URL. Without it, M7 can be built and tested only in emulation.
+4. Then implement M7 as planned: manifest and icon E; true full screen behind the status bar and Dynamic Island; the service-worker app shell with our own waking screen; auto-rejoin to the last table. Brief Codex with a detailed prompt, then review the diff, run every check and review screenshots before committing.
+5. Open M7's PR into `overhaul/next` and ask before merging. Never merge into `main` before M8, and never without the owner's explicit approval.
+6. Other open owner items: whether to build a private deck slot (the owner adds scans of a deck they own; it's never committed); per-suit court figures (a possible follow-up); the M6 cold-start check on a real iPhone.
 
 ## How to resume
 
@@ -25,11 +34,17 @@ _Last updated: 2026-10-27 — Milestones 2–5 and the "pick up only on your own
 - `pnpm` is not on `PATH`. Use `corepack pnpm …`. Workspace scripts that call `pnpm` internally (`typecheck`, `dev`, e2e web servers) need a `pnpm` shim on `PATH` (a `pnpm.cmd` containing `@corepack pnpm %*`).
 - If `node_modules` looks broken, reinstall with `CI=true corepack pnpm install --frozen-lockfile`.
 - Playwright Chromium and WebKit are installed (`./node_modules/.bin/playwright install webkit chromium`).
-- Codex runs via the Claude Code `codex` plugin (`codex-companion.mjs task --write --fresh --cwd <repo> --prompt-file <file>`). Tell Codex to use `corepack pnpm exec <bin>` and not to run git or `pnpm install`.
+- Codex runs via the Claude Code `codex` plugin (`codex-companion.mjs task --write --fresh --cwd <repo> --prompt-file <file>`). Tell Codex to use `corepack pnpm exec <bin>` and not to run git or `pnpm install`. Codex's sandbox can't start Vitest or Playwright (`spawn EPERM`), so Claude runs all tests. Codex image generation (`$imagegen`, built-in `image_gen`) works for artwork; see the `codex-imagegen` skill.
+- `gh` trips the same ownership check. Run it with `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'`.
+- `core.autocrlf=true`: after branch switches or merges, Prettier may flag files as CRLF; `corepack pnpm exec prettier --write <files>` fixes them with no content diff. There is no Python on this machine; use Node.
+- Local-only helpers (gitignored `output/`):
+  - **Audit screenshots:** run `corepack pnpm build`, then `EXTRA=1 corepack pnpm exec tsx output/audit/shots.ts`. Add `DECK=classic|simple BACK=red|blue|walnut|felt` for per-deck shots in `output/audit/shots-<deck>/`. This takes several minutes, so run it in the background.
+  - `output/deck-samples/tools/`: `convert-assets.cjs` (Chromium-canvas PNG→WebP conversion used for the card art), `shot-html.cjs` (screenshots a local HTML page), and `pnpm`/`pnpm.cmd` shims; put that folder on `PATH` for workspace scripts.
 
 ## Current state
 
-- Integration branch **`overhaul/next`** (from `main` @ `a3369df`), now @ `1896132` with M6 merged. Active branch: **`overhaul/m7-home-screen`** (from `overhaul/next` @ `1896132`; so far only this handoff update). M7's PR goes into `overhaul/next`. **Never merge without the owner's approval**, and never into `main` before M8 is done.
+- Integration branch **`overhaul/next`** (from `main` @ `a3369df`), now @ `9e2f606` with M6 ([PR #8](https://github.com/InxlingGamer/palace-online/pull/8) → `1896132`) and the card decks ([PR #9](https://github.com/InxlingGamer/palace-online/pull/9) → `9e2f606`, merged 2026-10-27 with the owner's approval) merged. Active branch: **`overhaul/m7-home-screen`**, fast-forwarded to `overhaul/next` @ `9e2f606` plus handoff commits; no M7 code yet. M7's PR goes into `overhaul/next`. **Never merge without the owner's approval**, and never into `main` before M8 is done.
+- Merged feature branches (`overhaul/m5-iphone-hand`, `overhaul/pickup-own-turn`, `overhaul/m6-waking-table`, `overhaul/card-decks`) still exist on GitHub; they're safe to delete once the owner agrees.
 - 2026-10-27, with the owner's explicit approval: [PR #6](https://github.com/InxlingGamer/palace-online/pull/6) (pickup on your own turn) merged into `main` as `0785602` (17:27 UTC); `main` CI passed and Render deployed it (the live bundle has the own-turn check in `canPickUpPile`). `main` was then merged into `overhaul/m5-iphone-hand` (conflicts in the scenario list, `package.json` and this file resolved to keep both the `pickup-own-turn` rename and `big-hand`; `pnpm check` 106/106, main e2e 12/12, all scenario suites passed), PR CI passed, and [PR #7](https://github.com/InxlingGamer/palace-online/pull/7) (M5) merged as `a3369df` (17:41 UTC). `main` CI passed at 18:41 and Render deployed at 18:42: `/healthz` OK and the live bundle `index-7yjX5ki1.js` matches the local build of the merged branch.
 - That `main` CI run took an hour: `playwright install --with-deps` ran **54 min** (17:41–18:35) on the slow Ubuntu mirror; the tests took 6 min. This prompted the integration-branch rule above.
 - M4 merged 2026-10-27 06:46 UTC with the owner's approval ([PR #4](https://github.com/InxlingGamer/palace-online/pull/4) → `cb1691e`). `main` CI passed (quality + browser) and Render deployed it at about 06:53 UTC: `/healthz` OK, the live bundle contains the M4 hand code, and `/cards/court-king.webp` is served.
@@ -164,7 +179,7 @@ Work (Codex brief, Claude review):
 3. **Icon: option E (chosen 2026-10-27).** Like the earlier fanned pair, but the front card is cream with a burgundy palace and a gold pennant, over the burgundy card back, on felt (mockup canvas artboard "M7 — Home Screen icon options").
 4. **Use the entire screen (owner, emphasised).** The app must run edge to edge, including the strip behind the clock, battery and Dynamic Island: the walnut top bar extends under the status bar, with no white or black band above it. The dock clears the home indicator. iOS always draws the clock and battery on top; web apps can't hide them, so the top bar's contents start below them via `env(safe-area-inset-top)`.
 
-### Card decks and lobby deck picker (owner request, 2026-10-27; built on `overhaul/card-decks`, PR into `overhaul/next`)
+### Card decks and lobby deck picker (owner request, 2026-10-27; done, [PR #9](https://github.com/InxlingGamer/palace-online/pull/9) merged into `overhaul/next` as `9e2f606`; not deployed)
 
 - The owner found the old card faces hard to look at and wanted a deck choice on the lobby screen. **Ask before choosing designs.** Rejected along the way: Claude's own canvas decks (rounds 1 and 2, including a "Portal" theme) and the public-domain Byron Knoll deck ("cluttered", "bad spacing").
 - **Approved (2026-10-27): two decks made by Codex from detailed briefs, reviewed by Claude**, as sample pages in `output/deck-samples/` (local, gitignored; `sample-deck.html` and `sample-simple.html`, with prompts in `generation-record*.json`):
@@ -254,7 +269,7 @@ Work (Codex brief, Claude review):
 | 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; merged and deployed  |
 | 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | done; merged and deployed  |
 | 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | done; in `overhaul/next`   |
-| 7   | iPhone Home Screen web app (plan hosting with Render first)         | planned; decks PR open     |
+| 7   | iPhone Home Screen web app (plan hosting with Render first)         | planned; next to build     |
 | 8   | Regression testing and final QA                                     | not started                |
 
 ## Task tracker
@@ -280,6 +295,8 @@ Work (Codex brief, Claude review):
 | M5-2 | Claude review, audit-harness measurements (iPhone portrait/landscape, desktop), screenshots, PR                                                                                                                                             | —   | done   | Claude | M5-1    | —                          | yes      |
 | M6-1 | CI: run browser tests in the official Playwright container (no apt install), version guard, 30 min timeout                                                                                                                                  | P1  | done   | Claude | —       | CI                         | yes      |
 | M6-2 | Waking banner for an open page, `bootId` restart detection and copy, `api()` retry on waking responses, tests                                                                                                                               | P1  | done   | Codex  | —       | client, server `/healthz`  | yes      |
+| D-1  | Card decks: Classic and Simple (Codex art + samples, Claude review), SVG card renderer, lobby "Your cards" picker, per-device preference; PR #9                                                                                             | P1  | done   | Codex  | —       | client, assets, e2e        | yes      |
+| M7-1 | Home Screen web app: manifest + icon E, full screen behind status bar, service-worker shell + waking screen, auto-rejoin, staging                                                                                                           | P1  | todo   | Codex  | staging | client, server headers     | yes      |
 
 ## Key audit findings (summary)
 
@@ -305,7 +322,9 @@ Work (Codex brief, Claude review):
 
 ## Open questions for the owner
 
-- Approve merging the card-decks PR into `overhaul/next` (no deploy). Still open: whether to build the private deck slot for a deck the owner scans.
+- Does the free staging service exist yet (its URL)? M7 needs it for real-iPhone testing.
+- Build a private deck slot for a deck the owner scans (never committed)? Not yet agreed.
+- Per-suit court figures for either deck? A possible follow-up.
 - M7: create the free staging service in Render (settings in "Milestone 7 plan"); Claude can't do it from here.
 
 ## Verification status and unverified areas
