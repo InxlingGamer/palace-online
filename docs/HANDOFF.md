@@ -2,7 +2,16 @@
 
 Living status document for the 2026 audit and overhaul. Keep it current at every checkpoint so any new chat can pick up from here. Read this first, then `README.md`, `docs/ARCHITECTURE.md`, and `docs/RULES.md`.
 
-_Last updated: 2026-10-27 — Milestones 2–4 are live in production (M4 deployed about 06:53 UTC). The owner approved merging both pending PRs: the rule change "pick up the pile only on your own turn" ([PR #6](https://github.com/InxlingGamer/palace-online/pull/6)) merged as `0785602`, and **Milestone 5 (iPhone hand for 20+ cards, [PR #7](https://github.com/InxlingGamer/palace-online/pull/7)) is merged next**. Next up: M6 ("waking the table" cold-start screen), then M7 (iPhone Home Screen web app, plan with the owner first) and M8 (regression)._
+_Last updated: 2026-11-13 — **Production now runs everything through the mobile polish.** With the owner's explicit approval (2026-11-13), `overhaul/mobile-polish` (built on M7 `overhaul/m7-home-screen`, which includes M6 and the card decks) was merged into `main` and deployed. This skipped the planned `overhaul/next` → M8 → `main` order at the owner's request. M7's Home Screen app is therefore live without the real-iPhone staging test; M8 (regression on the real iPhone) is still to do. See "Mobile polish (2026-11-13)" below._
+
+## Start here (next chat)
+
+1. Read this file, then `README.md`, `docs/ARCHITECTURE.md` and `docs/RULES.md`. Follow the working agreements below.
+2. Check out **`overhaul/m7-home-screen`** and run `git -c safe.directory=* status`. M7 is built and its PR into `overhaul/next` is open (see "M7 implementation").
+3. Waiting on the owner: create the free staging service (settings under "Milestone 7 plan"), temporarily set its branch to `overhaul/m7-home-screen`, add it to the iPhone Home Screen and test (the checklist is in the PR). Then switch staging back to `overhaul/next`. Fix anything found on the M7 branch and re-test.
+4. Ask the owner whether to rebalance the portrait table for the taller 430×932 standalone screen (see "Known and not changed").
+5. Merge M7's PR into `overhaul/next` only with the owner's explicit approval. Never merge into `main` before M8, and never without the owner's explicit approval.
+6. Other open owner items: whether to build a private deck slot (the owner adds scans of a deck they own; it's never committed); per-suit court figures (a possible follow-up); the M6 cold-start check on a real iPhone.
 
 ## How to resume
 
@@ -15,6 +24,7 @@ _Last updated: 2026-10-27 — Milestones 2–4 are live in production (M4 deploy
 
 - Roles: Claude is project manager, architect, design lead, and QA; Codex implements scoped tasks. Claude reviews every Codex diff, runs the tests, and checks rendered screenshots before anything is committed.
 - **`main` deploys to production.** `render.yaml` uses `autoDeployTrigger: checksPass` on `main`. All work happens on `overhaul/*` branches with one PR per milestone; merging requires the owner's explicit approval.
+- **Integration branch (owner, 2026-10-27):** because each deploy waits on the slow CI browser install, milestone branches start from and open PRs into **`overhaul/next`**, which does not deploy. Each PR still gets Claude's full review, tests and screenshots, and CI (the workflow runs on every PR). Merging into `overhaul/next` still needs the owner's approval. After M8's regression passes, `overhaul/next` goes to `main` in one PR, with the owner's approval: one deploy at the end. Production stays at M5 until then; show the owner new work through screenshots or a local run. Open question for M7: "Add to Home Screen" needs a real HTTPS address on the iPhone, so decide with the owner whether M7 needs one early deploy.
 - Budget is $0. No paid services, dependencies, or hosting changes without approval. Do not migrate off Render without approval.
 - Players: two people (the owner and one partner). Priority devices: desktop and **iPhone 15 Plus Safari, portrait**. No real-device testing service; use Playwright WebKit emulation and list what remains unverified.
 
@@ -24,17 +34,25 @@ _Last updated: 2026-10-27 — Milestones 2–4 are live in production (M4 deploy
 - `pnpm` is not on `PATH`. Use `corepack pnpm …`. Workspace scripts that call `pnpm` internally (`typecheck`, `dev`, e2e web servers) need a `pnpm` shim on `PATH` (a `pnpm.cmd` containing `@corepack pnpm %*`).
 - If `node_modules` looks broken, reinstall with `CI=true corepack pnpm install --frozen-lockfile`.
 - Playwright Chromium and WebKit are installed (`./node_modules/.bin/playwright install webkit chromium`).
-- Codex runs via the Claude Code `codex` plugin (`codex-companion.mjs task --write --fresh --cwd <repo> --prompt-file <file>`). Tell Codex to use `corepack pnpm exec <bin>` and not to run git or `pnpm install`.
+- Codex runs via the Claude Code `codex` plugin (`codex-companion.mjs task --write --fresh --cwd <repo> --prompt-file <file>`). Tell Codex to use `corepack pnpm exec <bin>` and not to run git or `pnpm install`. Codex's sandbox can't start Vitest or Playwright (`spawn EPERM`), so Claude runs all tests. Codex image generation (`$imagegen`, built-in `image_gen`) works for artwork; see the `codex-imagegen` skill.
+- `gh` trips the same ownership check. Run it with `GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'`.
+- `core.autocrlf=true`: after branch switches or merges, Prettier may flag files as CRLF; `corepack pnpm exec prettier --write <files>` fixes them with no content diff. There is no Python on this machine; use Node.
+- Local-only helpers (gitignored `output/`):
+  - **Audit screenshots:** run `corepack pnpm build`, then `EXTRA=1 corepack pnpm exec tsx output/audit/shots.ts`. Add `DECK=classic|simple BACK=red|blue|walnut|felt` for per-deck shots in `output/audit/shots-<deck>/`. This takes several minutes, so run it in the background.
+  - `output/deck-samples/tools/`: `convert-assets.cjs` (Chromium-canvas PNG→WebP conversion used for the card art), `shot-html.cjs` (screenshots a local HTML page), and `pnpm`/`pnpm.cmd` shims; put that folder on `PATH` for workspace scripts.
 
 ## Current state
 
-- 2026-10-27, with the owner's explicit approval: [PR #6](https://github.com/InxlingGamer/palace-online/pull/6) (pickup on your own turn) merged into `main` as `0785602`; `main` was then merged into `overhaul/m5-iphone-hand` (conflicts in the scenario list, `package.json` and this file resolved to keep both the `pickup-own-turn` rename and `big-hand`), and [PR #7](https://github.com/InxlingGamer/palace-online/pull/7) (M5) merges after its CI passes. Start M6 on a new branch from the updated `main`; **never merge without the owner's approval** (merging deploys to production).
+- Integration branch **`overhaul/next`** (from `main` @ `a3369df`), now @ `9e2f606` with M6 ([PR #8](https://github.com/InxlingGamer/palace-online/pull/8) → `1896132`) and the card decks ([PR #9](https://github.com/InxlingGamer/palace-online/pull/9) → `9e2f606`, merged 2026-10-27 with the owner's approval) merged. Active branch: **`overhaul/m7-home-screen`**, fast-forwarded to `overhaul/next` @ `9e2f606` plus handoff commits; no M7 code yet. M7's PR goes into `overhaul/next`. **Never merge without the owner's approval**, and never into `main` before M8 is done.
+- Merged feature branches (`overhaul/m5-iphone-hand`, `overhaul/pickup-own-turn`, `overhaul/m6-waking-table`, `overhaul/card-decks`) still exist on GitHub; they're safe to delete once the owner agrees.
+- 2026-10-27, with the owner's explicit approval: [PR #6](https://github.com/InxlingGamer/palace-online/pull/6) (pickup on your own turn) merged into `main` as `0785602` (17:27 UTC); `main` CI passed and Render deployed it (the live bundle has the own-turn check in `canPickUpPile`). `main` was then merged into `overhaul/m5-iphone-hand` (conflicts in the scenario list, `package.json` and this file resolved to keep both the `pickup-own-turn` rename and `big-hand`; `pnpm check` 106/106, main e2e 12/12, all scenario suites passed), PR CI passed, and [PR #7](https://github.com/InxlingGamer/palace-online/pull/7) (M5) merged as `a3369df` (17:41 UTC). `main` CI passed at 18:41 and Render deployed at 18:42: `/healthz` OK and the live bundle `index-7yjX5ki1.js` matches the local build of the merged branch.
+- That `main` CI run took an hour: `playwright install --with-deps` ran **54 min** (17:41–18:35) on the slow Ubuntu mirror; the tests took 6 min. This prompted the integration-branch rule above.
 - M4 merged 2026-10-27 06:46 UTC with the owner's approval ([PR #4](https://github.com/InxlingGamer/palace-online/pull/4) → `cb1691e`). `main` CI passed (quality + browser) and Render deployed it at about 06:53 UTC: `/healthz` OK, the live bundle contains the M4 hand code, and `/cards/court-king.webp` is served.
 - M4 mockup, approved by the owner 2026-10-27: [Palace felt table mockup](https://claude.ai/artifact/QKGHDTgYMXbDyFfBcMiZPM), a private design canvas (only the owner can open it unless shared). Frames: desktop on your turn and with a 22-card hand; iPhone 15 Plus (Safari 430×739) on your turn, on Ben's turn and with a 22-card hand; card sheet; card component; plus a DEFERRED row (Home Screen app, icon).
 - Verification for M4: 99/99 Vitest tests (baseline 75), 4/4 typechecks, ESLint, Prettier, production build; Playwright main suite 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape) with new no-page-overflow and hidden-scrollbar checks; scenario suites 18/18. Screenshots of every screen reviewed at 1366×768, 1920×1080, iPhone portrait 430×739 and iPhone landscape (`output/audit/shots/`, local only).
 - Merged 2026-10-26 with the owner's explicit approval (merge commits, not squash): PR #1 (M2) → `edb6dbb`; PR #2 (M3) → `1ac0278`; [PR #3](https://github.com/InxlingGamer/palace-online/pull/3) (CI test fix) → `f3fafc2`. Render deployed M2 at 20:58 UTC and M3 at 22:12 UTC; `/healthz` OK; the live client bundle contains the M3 code; the main browser suite passed 6/6 against production (desktop Chromium, iPhone portrait).
 - PR #3 context: `main` CI for the M3 merge failed twice because `page.reload()` crashed the page ("Page crashed") in iPhone-emulated WebKit on GitHub's Linux runners. It's intermittent, never reproduced on Windows, and reduced motion didn't prevent it. The final-play rejoin reload check now runs only on desktop Chromium; the final-card hold is still tested on every device. That blocked the M3 deploy until PR #3 merged.
-- **GitHub runner slowness, 2026-10-26:** the `browser` job's `playwright install --with-deps` step took 10–46 min several times because `azure.archive.ubuntu.com` was crawling (packages timing out and falling back to `archive.ubuntu.com`). It isn't frozen: cancelling restarts the same slow download, so prefer waiting. One run also timed out a long-standing M2 test on a slow runner. Suggested follow-up (not done): cache Playwright browsers and/or add `timeout-minutes` to the install step so a real hang fails fast.
+- **GitHub runner slowness, 2026-10-26:** the `browser` job's `playwright install --with-deps` step took 10–46 min several times because `azure.archive.ubuntu.com` was crawling (packages timing out and falling back to `archive.ubuntu.com`). It isn't frozen: cancelling restarts the same slow download, so prefer waiting. One run also timed out a long-standing M2 test on a slow runner. Suggested follow-up (not done; planned as the first task of M6): cache Playwright browsers and/or add `timeout-minutes` to the install step so a real hang fails fast. It recurred on 2026-10-27 (54 min).
 - Milestones 1–3 are complete and deployed.
 - Verification for M2: 65/65 Vitest tests (3 consecutive runs), 4/4 typechecks, ESLint, Prettier; Playwright 12/12 (desktop Chromium, desktop WebKit, iPhone 15 Plus WebKit portrait and landscape) including a new simultaneous-draw test; scenario suites 9/9. The original reproduction now accepts simultaneous draws, a play racing an opponent draw, and double draws.
 - Baseline before M2: 43 unit/integration tests.
@@ -120,7 +138,7 @@ Work (Codex brief, Claude review):
 - A rAF-throttled scroll handler that doesn't re-render the cards.
 - A `big-hand` test scenario (26 cards) with browser tests on desktop Chromium, iPhone portrait and landscape, including a real CDP touch swipe in mobile-emulated Chromium and a rough frame-time guard.
 
-### M5 implementation (2026-10-27, done; merge approved by the owner)
+### M5 implementation (2026-10-27, done; merged and deployed)
 
 - Codex implemented it as briefed: `hand-gesture.ts` (`isTap`, `selectedVisibility`, thresholds `TAP_DISTANCE` 10, `TAP_SCROLL_DELTA` 2, `GLIDE_IDLE_MS` 80, `MIN_VISIBLE_STRIP` 12), `hand.tsx` (passive pointer listeners on the scroll box, capture-phase click guard for touch/pen only, `contextmenu` blocked, rAF-throttled edge/badge state, `.hand-selected--left/right` badge buttons, nudge on select), `.game-shell` `touch-action: manipulation` + no text selection, `-webkit-touch-callout: none` on the hand. Landscape now also uses the 24 px minimum strip (it inherited 22). Scenario `big-hand` (26 cards, 52 distinct physical cards); the scenario config runs it on iPhone portrait at 430×739.
 - Codex's sandbox could not start Vitest or Playwright (`spawn EPERM`); Claude ran everything.
@@ -132,11 +150,139 @@ Work (Codex brief, Claude review):
 - Merge: PR #6 merged first; `main` was merged into this branch and the conflicts (scenario list in `config.ts` and `test-scenarios.ts`, root `package.json`, this file) resolved to keep both the `pickup-own-turn` rename and `big-hand`. Checks were rerun on the merged branch before PR #7 merged.
 - Windows note: switching branches with `core.autocrlf=true` rewrites some files with CRLF and Prettier then flags them; `corepack pnpm exec prettier --write <files>` restores LF with no content diff.
 
+## Milestone 6 (done; [PR #8](https://github.com/InxlingGamer/palace-online/pull/8) merged into `overhaul/next` as `1896132` with the owner's approval, 2026-10-27; not deployed)
+
+- **CI fix (done, `6563958`):** the `browser` job now runs in the official `mcr.microsoft.com/playwright:v1.62.1-noble` container (`--user 1001`) instead of `playwright install --with-deps`, which waited on the Ubuntu apt mirror (up to 54 min). A step fails fast if the locked Playwright version and the image tag differ, so **bump the tag in `ci.yml` together with any Playwright upgrade**. The job has `timeout-minutes: 30`. First run on PR #8: browser job 5 min 43 s in total, including the image pull and the full e2e suite (previously 7 min at best, up to an hour).
+- **Finding:** Render's free tier [shows its own loading page](https://render.com/docs/free) to browsers while a sleeping service spins up (about 1 minute). Our client is served by the same server, so on a fresh page load our page can't show anything until the server is awake. Waking is a new process, so every in-memory room is gone.
+- **Owner decision (2026-10-27): small fix now, full screen in M7.** M6 handles a page that is already open (a tab or iPhone Safari page left in the background) when the server sleeps or restarts. M7's Home Screen app caches the page on the phone, so launching it opens straight into our own waking screen instead of Render's (it must not cache Render's loading page as the app shell). Rejected for now: an outside pinger to keep the server awake (uses about all of the 750 free hours, and it's a hosting change), and serving the client as a separate always-on static site (cross-site cookies are blocked by Safari because `onrender.com` subdomains are different sites).
+- M6 client work (Codex brief, Claude review):
+  - After more than 4 s unable to reach the server, the banner says "Waking the table…" plus "The server naps after 15 quiet minutes. This can take about a minute." It no longer says "Offline — tap to retry" while Socket.IO is still retrying. When the device itself is offline, it says "You're offline. Waiting for a connection…".
+  - `/healthz` gains a per-process `bootId`, so the client can tell a server restart from an ordinary expiry: "Table closed: the server restarted while the table was quiet…" in the game, and "Your last table closed while the server was asleep…" after a reload.
+  - `api()` retries waking-style failures (non-JSON body, 502/503/504) for about 90 s and never shows a raw parse error.
+- Implementation (Codex, then Claude review): new `apps/client/src/api.ts` (moved out of `App.tsx`: retrying `api()`, `bootId` helpers) and `server-wake.ts` (pure `wakingBanner` and `serverRestarted`), `/healthz` returns `{ status, uptime, bootId }` with `Cache-Control: no-store`. While waking, the lobby button says "Waking the table…" with the explanation underneath, and the reload screen says "Waking the table…".
+- Claude review fixes:
+  - `api()` gave up at once when the connection dropped (the likeliest failure while Render swaps processes); it now retries until the deadline.
+  - `api()` retried any non-JSON 4xx for 90 s; the room-creation rate limiter answers 429 in plain text, so a rate-limited "Create room" would have spun for 90 s and kept hitting the limit. Every 4xx now fails at once.
+  - After a server-side disconnect Socket.IO stops retrying, but the banner would have said "Waking the table…" forever. It now says "Disconnected. Tap to reconnect".
+  - The expired overlay showed "Room expired" and then flipped to "Table closed" when `/healthz` answered; it now decides first.
+  - Screenshots: the banner title is now bold and the explanation muted; the lobby shows the explanation under the waking button (`.lobby-hint`).
+  - Tests: Codex's socket-cutting e2e tests failed on every project because they cut the WebSocket before Socket.IO finished upgrading from long-polling, leaving the page on a long-poll that stays open up to 25 s. They now wait for the upgrade (`socketUpgraded`, the client's `5` frame). The three reload tests skip mobile emulation, like the existing reload checks (PR #3 Linux CI WebKit crash); desktop WebKit covers them.
+- Verification: `pnpm check` (131/131 Vitest, baseline 106); main browser suite 34 passed, 6 skipped (reload tests on the two mobile projects); all scenario suites passed (25). Screenshots of the waking banner and lobby on desktop Chromium/WebKit, iPhone portrait and landscape reviewed (`output/audit/shots/m6/`, local). On iPhone portrait the two-line banner temporarily covers the opponent's seat plate; it only shows while the server is unreachable.
+- Not verified: a real Render sleep and wake (what Socket.IO's polling requests actually receive from Render while waking, and how long iOS Safari keeps a backgrounded page's socket). Check on the next natural cold start: leave a table idle for 20+ minutes on the iPhone and come back.
+
+## Milestone 7 plan: iPhone Home Screen web app (planning, branch `overhaul/m7-home-screen`)
+
+**Owner decisions (2026-10-27):**
+
+1. **Test on a free staging site.** A second free Render web service auto-deploys `overhaul/next`. The owner installs and tests the app from there; production stays untouched until M8. The owner creates it once in the Render dashboard (settings below).
+2. **Rejoin automatically.** iOS relaunches a Home Screen app at its start page, not the table. On launch, if the last table still exists, go straight into it; otherwise show the lobby with the name filled in and a short note that the table ended.
+3. **Icon: option E (chosen 2026-10-27).** Like the earlier fanned pair, but the front card is cream with a burgundy palace and a gold pennant, over the burgundy card back, on felt (mockup canvas artboard "M7 — Home Screen icon options").
+4. **Use the entire screen (owner, emphasised).** The app must run edge to edge, including the strip behind the clock, battery and Dynamic Island: the walnut top bar extends under the status bar, with no white or black band above it. The dock clears the home indicator. iOS always draws the clock and battery on top; web apps can't hide them, so the top bar's contents start below them via `env(safe-area-inset-top)`.
+5. **Owner answers at the start of the M7 build (2026-10-27):**
+   - Staging doesn't exist yet. Build and test M7 in emulation first; the owner creates staging later and sends the URL.
+   - **Real-iPhone test before merge:** the owner temporarily points staging at `overhaul/m7-home-screen`, tests the PR on the iPhone, then switches staging back to `overhaul/next` before merging.
+   - **Auto-rejoin everywhere:** opening "/" in the Home Screen app or in Safari goes straight back to the last table if it still exists (any phase, including a finished game). "Return home" forgets it.
+   - **Waking launch screen built to Claude's spec without a mockup:** felt with the walnut top strip, icon E's card pair centred, "Waking the table…" in Source Serif plus the M6 explanation, a slow gold pulse (static with reduced motion). The owner reviews screenshots in the PR.
+   - Claude's call: icon E's back card is the Classic red scroll back, as on the mockup artboard.
+   - Finding: CI's `push` trigger only covers `main`, so a merge commit on `overhaul/next` (or a push to the M7 branch) gets no checks of its own, and a staging service set to deploy "after CI checks pass" may never deploy. M7 adds `overhaul/**` push triggers (free for a public repo).
+
+### Card decks and lobby deck picker (owner request, 2026-10-27; done, [PR #9](https://github.com/InxlingGamer/palace-online/pull/9) merged into `overhaul/next` as `9e2f606`; not deployed)
+
+- The owner found the old card faces hard to look at and wanted a deck choice on the lobby screen. **Ask before choosing designs.** Rejected along the way: Claude's own canvas decks (rounds 1 and 2, including a "Portal" theme) and the public-domain Byron Knoll deck ("cluttered", "bad spacing").
+- **Approved (2026-10-27): two decks made by Codex from detailed briefs, reviewed by Claude**, as sample pages in `output/deck-samples/` (local, gitignored; `sample-deck.html` and `sample-simple.html`, with prompts in `generation-record*.json`):
+  - **Classic:** a real-deck look. Original double-headed English-pattern courts in flat red, blue, gold and black (Codex image generation), an ornate original ace of spades, original symmetrical red and blue scroll backs, traditional pip positions and **Libre Caslon Text 700** indices at natural width. The owner's one change was that the first index font (Libre Bodoni, forced into a fixed width) looked squished.
+  - **Simple:** matches the site. A cream face, Source Serif 4 indices, airy pips, aces in a thin gold ring, one set of modern flat single-headed portraits (king, queen, jack) in site colours, and SVG walnut and felt backs with a gold lattice and a "P" medallion.
+  - Claude review fixes on the samples: the "10" index is set smaller (as on real decks) so the 10s keep normal pip columns, after Codex had squeezed them into the centre. The court frames shrank only as much as the wider index needs (Classic 25% inset). The portraits are cropped to the figure. The queen was regenerated (black lips read as a moustache). An ace background box and an encoding glitch were fixed.
+- **Implementation:**
+  - `decks.ts`: deck and back preference in `localStorage` key `palace-cards`, validated, default Classic plus Red; a React context.
+  - `cards.tsx`: every card is inline SVG with viewBox 0 0 100 140, ported from the samples, with `data-deck` and `data-back` attributes.
+  - `DeckPicker.tsx`: the lobby "Your cards (only you see this)" picker, with native radio inputs (deck tiles plus back swatches) and 44 px targets.
+  - Each player sees only their own choice everywhere: hand, piles, fields, flights, the opponent's backs.
+  - Assets in `apps/client/public/cards/{classic,simple}/` were converted by Claude through Chromium's canvas: about 515 KB in total, versus about 15 MB raw. The ace is made black on transparent and the classic backs exactly mirrored. The font is in `apps/client/src/fonts/` (OFL). The M4 `court-*.webp` files were removed.
+- Claude review fixes on the build:
+  - The unplayable dim on a selected card had greyed the gold selection ring; it now dims the face only.
+  - The draw pile's stacked edge was burgundy (left from the old back); it's now neutral.
+  - The new reload-based picker test skips mobile emulation (PR #3 Linux WebKit crash).
+  - The e2e server's room-creation limit was raised (`ROOM_CREATE_LIMIT=1000` in `dev:test` only). The main suite now creates more than 20 rooms a minute, so M6 tests intermittently hit "Too many requests". Production keeps 20.
+  - `.impeccable/` (a local design-hook cache) is gitignored.
+- **Verification:**
+  - `pnpm check`: 146/146 Vitest (baseline 131).
+  - Main browser suite: 40 passed, 8 skipped (mobile reload skips). The waking, socket and deck tests ran 72/72 across three repeats.
+  - All scenario suites passed (25).
+  - Audit screenshots for both decks (`output/audit/shots-classic/`, `shots-simple/`, 121 each; `DECK=… BACK=…` env in `shots.ts`) were reviewed on desktop 1366/1920, iPhone portrait and landscape: lobby picker, table, 20- and 26-card hands at 24 px strips, courts, aces and backs.
+- Known and accepted:
+  - Each deck uses one king, queen and jack shared by all suits; per-suit figures would be a follow-up.
+  - At the opponent's tiny overlapped size, Simple backs mostly show their cream border.
+  - The Simple portraits keep very faint shading from generation.
+- **Copyright:** the exact Bicycle (Rider back, court art) and theory11 Rick and Morty artwork can't be shipped. The repo and site are public, and Claude won't download, copy or recreate that art. Offered instead: a private deck slot the owner fills once with their own scans (served only to players at their table, never committed). Not yet agreed.
+
+**Facts that shape the design:**
+
+- Since iOS 26, anything added to the Home Screen opens as a web app by default ([heise](https://heise.de/-10749652)). The manifest still supplies the name, icon, colours and display mode.
+- A Home Screen app has its **own** cookies and storage, separate from Safari's. A seat taken in Safari can't be resumed from the app, or the reverse. Invite links tapped in Messages open in Safari, not the app, so joining by room code must stay easy.
+- Storage can be evicted. WebKit asks web apps to cope with losing any cache or service worker ([WebKit storage policy](https://webkit.org/?p=14403)). The session cookie lasts 7 days.
+- Render shows its own loading page during a cold start (M6 finding). A cached app shell is what lets a Home Screen launch open into our own waking screen.
+
+**Implementation plan (Codex brief, Claude review):**
+
+1. **Manifest and head tags:** `manifest.webmanifest` (`name` "Palace Online", `short_name` "Palace", `display: standalone`, `start_url`/`scope` "/", `background_color` #0d1310, `theme_color` #2a1910, icons 192/512 plus a maskable 512); `apple-touch-icon` 180×180; `apple-mobile-web-app-capable` plus `mobile-web-app-capable`; `apple-mobile-web-app-status-bar-style` `black-translucent`; `apple-mobile-web-app-title` "Palace". Icons are built from vector source (SVG → PNG at build or committed PNGs), not generated images.
+2. **Full screen:** `viewport-fit=cover` is already set. Add `env(safe-area-inset-*)` padding: the header grows by the top inset (59 px on iPhone 15 Plus) while its background fills the whole strip, the dock gets the bottom inset (34 px), and landscape gets left/right insets. The standalone viewport is 430×932 CSS px. The body background matches the walnut bar, so no strip of another colour shows during launch or rubber-banding. Audit at 430×932 with simulated insets (Playwright can't produce real `env()` insets, so the CSS gets a test hook that sets them).
+3. **Service worker** (hand-written, no new dependency):
+   - Precache the app shell: `index.html`, hashed JS/CSS, fonts, court art and icons.
+   - Navigations go network first with a ~3 s timeout, and only accept responses carrying a header our server sets (for example `X-Palace-App`). Render's loading page lacks that header, so the cached shell is served instead.
+   - Never cache `/api`, `/socket.io` or `/healthz`.
+   - The shell shows a full-screen "Waking the table…" screen (M6 copy) and polls `/healthz` until the server answers, then continues to rejoin.
+   - After a deploy, a new worker takes over on the next launch. If the server's build differs from the cached shell, reload once.
+4. **Remember the table:**
+   - Store the last room code and display name in `localStorage`, and move M6's `palace-boot-<ROOM>` there from `sessionStorage`.
+   - On launch at "/", try `/reconnect` for the saved room. If it works, go straight into the table. If not, show the lobby with the name filled in and "Your last table ended."
+   - "Return home" forgets the saved room.
+5. **Staging:** no code change. The service reads the same env vars, with its own URL.
+6. **Tests:**
+   - The manifest and icons are served with the right types and sizes.
+   - The service worker registers (Chromium).
+   - An offline or "Render loading page" launch shows our waking screen, not a foreign page.
+   - A saved room auto-rejoins at "/".
+   - Safe-area padding is checked at 430×932 with simulated insets.
+   - No page overflow.
+
+**Staging service settings (owner, in the Render dashboard → New → Web Service):**
+
+- Repo `InxlingGamer/palace-online`, branch **`overhaul/next`**, name `palace-online-staging`, region Virginia, instance type **Free**, runtime Docker (Dockerfile `./Dockerfile`, context `.`), health check path `/healthz`, auto-deploy **after CI checks pass**.
+- Environment variables are the same as `render.yaml`: `NODE_ENV=production`, `PORT=10000`, `SESSION_COOKIE_SECURE=true`, `TRUST_PROXY=true`, `RECONNECT_GRACE_MS=600000`, `ROOM_IDLE_TTL_MS=1800000`, `ROOM_CREATE_LIMIT=20`, `INVALID_ACTION_LIMIT=30`. `PUBLIC_APP_URL` and `ALLOWED_ORIGINS` are the staging URL Render assigns (for example `https://palace-online-staging.onrender.com`; copy the real one from the dashboard).
+- Cost: $0. Free services share 750 instance-hours a month, but a sleeping service uses none, so two mostly idle services fit.
+- It starts on M6, so it also allows the M6 cold-start check on a real iPhone before M7 lands.
+
+### M7 implementation (2026-10-27, built; PR into `overhaul/next` pending owner approval)
+
+- Codex built it from a detailed brief (`manifest.webmanifest`, head tags, icon E vector sources + `scripts/render-icons.mjs`, `--safe-*` custom properties, the hand-written service worker, `BootGate` + `WakingScreen`, `storage.ts` + `rejoin.ts`, `X-Palace-App`/`buildId` on the server, a CI push trigger for `overhaul/next`, tests and docs). Codex's sandbox can't run Vitest or Playwright; Claude rendered the icons and ran everything.
+- How it works:
+  - **Service worker** (`apps/client/src/sw/service-worker.ts`, compiled into an unhashed `sw.js` by an inline Vite plugin). It precaches the shell, JS/CSS, woff2/ttf fonts, the manifest, icons and card art. Navigations go to the network first (3 s), and a response is accepted only with `X-Palace-App: 1`; otherwise the cached shell is served. `/api`, `/socket.io` and `/healthz` are never intercepted. A new worker skips waiting and claims clients.
+  - **Build identity:** a hash of the bundle file names, patched into the app and written to `dist/build.json`. The server reads it at startup and reports `buildId` in `/healthz`. A cached shell older than the server reloads once (guarded per build in `sessionStorage`).
+  - **Boot gate:** `/healthz` is checked before the app mounts. If it answers within 1.5 s, nothing shows. Otherwise the full-screen waking screen polls every ~2 s, each attempt allowed 5 s. When the device is offline it says "You're offline. Waiting for a connection…".
+  - **Storage:** `localStorage` keys `palace-name`, `palace-last-room` and `palace-boot-<ROOM>`, plus the deal and result markers (pruned to the 10 newest). Opening "/" with a saved room rejoins it through the same path as `/room/<CODE>`. Failure shows the lobby with the name filled in and "Your last table ended." (or the restart copy). "Return home" forgets the room.
+  - **Icons:** `apps/client/public/icons/` holds apple-touch-icon 180, 192, 512, maskable 512 and favicon 32 (PNGs committed, about 420 KB in total). The vector sources are in `apps/client/icons/`.
+  - **Tests:** a new `playwright.pwa.config.ts` (`pnpm test:e2e:pwa`, which builds first, then runs Chromium desktop plus Pixel 7) runs against the production server on port 4180 and is part of CI's browser job.
+- Claude review fixes:
+  - Each boot `/healthz` attempt aborted at 1.5 s, so on a slow network a warm server could never get through the gate. Attempts now get 5 s; the waking screen still appears at 1.5 s.
+  - A failed restore cleared the saved room even when the link was an invite to someone else's table, and an invitee without a seat was told "Your last table ended.". Now the saved room is forgotten only when it was that room, and the notice shows only for a table this device sat at (decided once at mount, because React StrictMode runs the restore effect twice in dev and the first run had already cleared the room).
+  - Removed `favicon.svg`: it was a 177 KB copy of the source with the card back embedded, and it was precached.
+  - The precache no longer includes the `.woff` fallbacks.
+  - The PWA config now calls `pnpm`, as the other configs do, rather than `corepack pnpm`.
+  - Fixed a hairline seam between the palace and its base on the waking screen.
+  - The offline PWA test now accounts for Chromium's offline emulation not reaching a document the worker served (`navigator.onLine` reads true there). It checks the cached shell first, then toggles offline to check the copy.
+  - Docs: the PNGs are committed, so there's no render-before-build step.
+- Screenshots (`output/audit/shots/m7/`, local; harness `output/audit/m7-shots.ts`): the waking screen, lobby and table at desktop 1366/1920, iPhone standalone 430×932 with simulated insets (59/34), Safari 430×739 and landscape 932×430 (insets 59/21/59). With insets, the header runs from y=0 in walnut with its controls from y=72, the dock reaches the bottom edge with its last button at 897 (≤ 898), and no page overflows anywhere.
+- Verification (Claude, 2026-10-27): `pnpm check` (Prettier, ESLint, 4/4 typechecks, 158/158 Vitest, baseline 146; production build). Main browser suite: 56 passed, 8 skipped (the mobile reload skips). All six scenario suites passed (25). PWA suite 6/6 (also 6/6 twice more during review).
+- Known and not changed (ask the owner): at the standalone 430×932 height, the portrait table leaves a tall empty felt band between the opponent's field and the piles, because the layout was tuned for Safari's 739. In landscape at 932 px wide, the room chip fills the 44 px header edge to edge (unchanged since M6).
+
+**Not verifiable without the real iPhone (check on staging):** how the status-bar strip looks behind the Dynamic Island, the launch screen, service-worker behaviour after iOS evicts storage, and a real cold start from the Home Screen.
+
 ## After Milestone 3
 
 - **M4 redesign:** classic green felt. First produce a mockup of the table (desktop and iPhone portrait) for owner approval before implementation. Keep the join flow working. Cards: cream faces with proper pip layouts and original court-card treatment (no copyrighted art); one card-back design. Clear turn indicator, legal-card indication, last-move indicator, lobby with an invite/copy button, sounds on by default, reduced-motion support. Gate hover styles with `@media (hover: hover)`.
 - **M5 hand layout:** single sideways-scrolling hand sorted as today (owner's choice). Acceptance: 20+ cards on iPhone 15 Plus (430×739 CSS px) are identifiable and individually selectable, nothing under the action dock, no page scroll/zoom or text selection conflicts, tap vs. swipe disambiguated, selected cards stay visible, smooth with 26+ cards. Measure with the audit harness (`output/audit/shots.ts`).
-- **M6:** "waking the table" screen for Render cold starts (the first request after 15 idle minutes takes about a minute).
+- **M6:** "waking the table" screen for Render cold starts (the first request after 15 idle minutes takes about a minute). Re-scoped 2026-10-27; see "Milestone 6" above.
 - **M7 (added by the owner, 2026-10-27, placed before final QA at their request): iPhone Home Screen web app** (a "bookmark app": Safari → Share → Add to Home Screen opens Palace full screen like an app). Details still to be worked out with the owner before any code. Planning questions:
   - Hosting: can it stay on Render free? Check how the manifest and icons are served and cached, what a deploy does to an installed app, whether a service worker is needed or wise, and how the ~1-minute cold start feels when launching from the Home Screen (ties into M6). If Render can't support it well, list the alternatives and costs and get the owner's approval before any switch (the budget is $0).
   - App behaviour: rejoin data surviving iOS killing the app (`sessionStorage` → `localStorage`?); invite links from Messages open in Safari, not the installed app, so joining by room code must stay easy.
@@ -151,32 +297,50 @@ Work (Codex brief, Claude review):
 | 2   | Multiplayer reliability, server crash fixes, lifecycle timers       | done; merged and deployed  |
 | 3   | Requested rules: pick up anytime; show final card before result     | done; merged and deployed  |
 | 4   | Visual redesign — classic green felt (owner chose a full redesign)  | done; merged and deployed  |
-| 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | done; merge approved       |
-| 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | approved, not started      |
-| 7   | iPhone Home Screen web app (plan hosting with Render first)         | not started; needs plan    |
+| 5   | Mobile hand layout for 20+ cards on iPhone 15 Plus, performance     | done; merged and deployed  |
+| 6   | Hosting: stay on Render plus a "waking the table" cold-start screen | done; in `overhaul/next`   |
+| 7   | iPhone Home Screen web app (plan hosting with Render first)         | built; PR open, not merged |
 | 8   | Regression testing and final QA                                     | not started                |
 
 ## Task tracker
 
-| ID   | Task                                                                                                                                                                                                                                        | Pri | Status | Agent  | Depends | Main files                 | Verified |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | ------ | ------ | ------- | -------------------------- | -------- |
-| M2-1 | Turn-scoped conflict check (`turnSeq`, `expectedTurn`) replacing global revision equality                                                                                                                                                   | P1  | done   | Codex  | —       | shared, engine, room-store | yes      |
-| M2-2 | No-op repeated READY/REMATCH (no broadcast)                                                                                                                                                                                                 | P2  | done   | Codex  | —       | engine, room-store         | yes      |
-| M2-3 | Crash fixes: non-function ack, LEAVE_ROOM session revocation, handler try/catch                                                                                                                                                             | P0  | done   | Codex  | —       | app.ts, room-store         | yes      |
-| M2-4 | Timers: no expiry outside play, forfeit-bypass fix, empty room kept for idle TTL, seats offline until socket connects                                                                                                                       | P1  | done   | Codex  | —       | room-store, engine         | yes      |
-| M2-5 | Abuse limits: per-session action budget, socket cap, Origin check                                                                                                                                                                           | P2  | done   | Codex  | —       | app.ts, room-store         | yes      |
-| M2-6 | Client: action sender module, single in-flight action, ack timeout + resend same actionId, neutral STALE notice, auto-dismiss toasts, visible reconnect indicator, snapshot ordering guard                                                  | P1  | done   | Codex  | M2-1    | client                     | yes      |
-| M2-7 | Docs: ARCHITECTURE and RULES updates                                                                                                                                                                                                        | P2  | done   | Codex  | M2-1..6 | docs                       | yes      |
-| M2-8 | Claude review, e2e (Chromium + WebKit iPhone), multi-client repro; Claude fixes: flaky sync test, idle cleanup skips connected rooms, client stops retrying a room the server no longer knows (shows Room expired), 10-minute forfeit grace | —   | done   | Claude | M2-1..7 | —                          | yes      |
-| M3-1 | Pick up anytime: engine (off-turn pickup, no turn change, no turnCount), client button for both players, dock copy, tests                                                                                                                   | P1  | done   | Codex  | M2-1    | engine, shared, client     | yes      |
-| M3-2 | Final-card reveal: `lastPlay` in state/projection, 1.5 s hold (0.7 s reduced motion) before results, tests                                                                                                                                  | P1  | done   | Codex  | —       | engine, shared, client     | yes      |
-| M3-3 | Claude review, e2e + screenshots (desktop, iPhone portrait/landscape); fixes: final-play box, caption placement, "Game over" banner                                                                                                         | —   | done   | Claude | M3-1..2 | client                     | yes      |
-| M4-1 | Mockup with owner feedback (no scrollbar, court pictures; Home Screen app deferred); court art generated by Codex image_gen                                                                                                                 | —   | done   | Claude | —       | mockup, public/cards       | yes      |
-| M4-2 | Felt redesign implementation: cards, table, hand layout, copy helpers, lobby/overlays, tests                                                                                                                                                | P1  | done   | Codex  | M4-1    | client                     | yes      |
-| M4-3 | Claude review, e2e + screenshots (4 viewports); fixes: static fonts, desktop rows, landscape, landing grid, seven copy, mobile reload guard                                                                                                 | —   | done   | Claude | M4-2    | client, e2e                | yes      |
-| R-1  | Pick up only on your own turn (any of your turns): engine, client button, tests, `pickup-own-turn` scenario, RULES; PR #6                                                                                                                   | P1  | done   | Codex  | —       | engine, client, e2e, docs  | yes      |
-| M5-1 | Hand: tap-vs-swipe guard, selected-card edge badge, no zoom/selection conflicts, scroll performance, `big-hand` scenario and tests                                                                                                          | P1  | done   | Codex  | —       | client, server scenario    | yes      |
-| M5-2 | Claude review, audit-harness measurements (iPhone portrait/landscape, desktop), screenshots, PR                                                                                                                                             | —   | done   | Claude | M5-1    | —                          | yes      |
+| ID   | Task                                                                                                                                                                                                                                        | Pri | Status | Agent        | Depends | Main files                 | Verified |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --- | ------ | ------------ | ------- | -------------------------- | -------- |
+| M2-1 | Turn-scoped conflict check (`turnSeq`, `expectedTurn`) replacing global revision equality                                                                                                                                                   | P1  | done   | Codex        | —       | shared, engine, room-store | yes      |
+| M2-2 | No-op repeated READY/REMATCH (no broadcast)                                                                                                                                                                                                 | P2  | done   | Codex        | —       | engine, room-store         | yes      |
+| M2-3 | Crash fixes: non-function ack, LEAVE_ROOM session revocation, handler try/catch                                                                                                                                                             | P0  | done   | Codex        | —       | app.ts, room-store         | yes      |
+| M2-4 | Timers: no expiry outside play, forfeit-bypass fix, empty room kept for idle TTL, seats offline until socket connects                                                                                                                       | P1  | done   | Codex        | —       | room-store, engine         | yes      |
+| M2-5 | Abuse limits: per-session action budget, socket cap, Origin check                                                                                                                                                                           | P2  | done   | Codex        | —       | app.ts, room-store         | yes      |
+| M2-6 | Client: action sender module, single in-flight action, ack timeout + resend same actionId, neutral STALE notice, auto-dismiss toasts, visible reconnect indicator, snapshot ordering guard                                                  | P1  | done   | Codex        | M2-1    | client                     | yes      |
+| M2-7 | Docs: ARCHITECTURE and RULES updates                                                                                                                                                                                                        | P2  | done   | Codex        | M2-1..6 | docs                       | yes      |
+| M2-8 | Claude review, e2e (Chromium + WebKit iPhone), multi-client repro; Claude fixes: flaky sync test, idle cleanup skips connected rooms, client stops retrying a room the server no longer knows (shows Room expired), 10-minute forfeit grace | —   | done   | Claude       | M2-1..7 | —                          | yes      |
+| M3-1 | Pick up anytime: engine (off-turn pickup, no turn change, no turnCount), client button for both players, dock copy, tests                                                                                                                   | P1  | done   | Codex        | M2-1    | engine, shared, client     | yes      |
+| M3-2 | Final-card reveal: `lastPlay` in state/projection, 1.5 s hold (0.7 s reduced motion) before results, tests                                                                                                                                  | P1  | done   | Codex        | —       | engine, shared, client     | yes      |
+| M3-3 | Claude review, e2e + screenshots (desktop, iPhone portrait/landscape); fixes: final-play box, caption placement, "Game over" banner                                                                                                         | —   | done   | Claude       | M3-1..2 | client                     | yes      |
+| M4-1 | Mockup with owner feedback (no scrollbar, court pictures; Home Screen app deferred); court art generated by Codex image_gen                                                                                                                 | —   | done   | Claude       | —       | mockup, public/cards       | yes      |
+| M4-2 | Felt redesign implementation: cards, table, hand layout, copy helpers, lobby/overlays, tests                                                                                                                                                | P1  | done   | Codex        | M4-1    | client                     | yes      |
+| M4-3 | Claude review, e2e + screenshots (4 viewports); fixes: static fonts, desktop rows, landscape, landing grid, seven copy, mobile reload guard                                                                                                 | —   | done   | Claude       | M4-2    | client, e2e                | yes      |
+| R-1  | Pick up only on your own turn (any of your turns): engine, client button, tests, `pickup-own-turn` scenario, RULES; PR #6                                                                                                                   | P1  | done   | Codex        | —       | engine, client, e2e, docs  | yes      |
+| M5-1 | Hand: tap-vs-swipe guard, selected-card edge badge, no zoom/selection conflicts, scroll performance, `big-hand` scenario and tests                                                                                                          | P1  | done   | Codex        | —       | client, server scenario    | yes      |
+| M5-2 | Claude review, audit-harness measurements (iPhone portrait/landscape, desktop), screenshots, PR                                                                                                                                             | —   | done   | Claude       | M5-1    | —                          | yes      |
+| M6-1 | CI: run browser tests in the official Playwright container (no apt install), version guard, 30 min timeout                                                                                                                                  | P1  | done   | Claude       | —       | CI                         | yes      |
+| M6-2 | Waking banner for an open page, `bootId` restart detection and copy, `api()` retry on waking responses, tests                                                                                                                               | P1  | done   | Codex        | —       | client, server `/healthz`  | yes      |
+| D-1  | Card decks: Classic and Simple (Codex art + samples, Claude review), SVG card renderer, lobby "Your cards" picker, per-device preference; PR #9                                                                                             | P1  | done   | Codex        | —       | client, assets, e2e        | yes      |
+| M7-1 | Home Screen web app: manifest + icon E, full screen behind status bar, service-worker shell + waking screen, auto-rejoin, staging                                                                                                           | P1  | built  | Codex        | staging | client, server headers     | emulated |
+| P-1  | Mobile polish: compact dock, "Your turn" pill, last-move row, height-scaled cards, final-card spotlight, new WINNER/LOSER screens, Original deck restored as default                                                                        | P1  | done   | Claude+Codex | —       | client, e2e                | emulated |
+
+## Mobile polish (2026-11-13)
+
+Owner request from three iPhone screenshots: move the "X played a Jack" tag up, make the turn status just "Your turn", shrink the bottom panel, redesign the result screens and fix the overlapping "Final card" caption. Branch `overhaul/mobile-polish`.
+
+- **Table (phone portrait, `styles.css` last block):** seven-row grid (opponent / felt / piles / felt / status / felt / you) so the status pill stays centred; card sizes scale with `dvh` (`--card-w: clamp(60px, min(10.6dvh, 19.5vw), 86px)`, pile/deck/field tokens on `.table`). The last-move tag has its own row (`.last-move-slot`), so it never touches a card; in landscape it floats in the free felt at top left. Short phones (≤640 px tall) hide the opponent's mini fan.
+- **Status:** `statusText()` in `table-copy.ts` (Your turn / Baby's turn / You win / Baby wins). The full rule (`requirementText()`) is kept in an `sr-only` span for screen readers (Codex review finding).
+- **Dock:** buttons only, one row, 48 px tall. "Play Q" / "Play 2 × 9" labels (`playLabel()`). No legal card → "Pick up pile" alone, in gold. Hidden-card phase → "Flip a face-down card" hint. Off-turn → dashed "Waiting for Baby…".
+- **Final card:** `FinalMoment` in `App.tsx` (`data-final-play` kept for tests): dimmed table, the card in a gold-lit spotlight, "FINAL CARD" / "Baby goes out", cross-fading into the results.
+- **Results:** `feedback.tsx` + `result.css` (Codex, Claude-reviewed): crown or card emblem, gold or silver title, subtitle with the opponent's name, turns and both players' pickups, "Baby wants a rematch" / "Waiting for Baby…", palette confetti that falls once.
+- **Cards:** the owner did not want new card art. The production M4 deck is restored exactly as the **Original** deck (`original-cards.tsx/.css`, `public/cards/court-*.webp`) and is the default; Classic and Simple stay as lobby options.
+- **Hand:** `hand.tsx` measures the rendered card width (the token can be a `dvh` clamp) and re-measures on window resize (Safari toolbar).
+- Verified: `pnpm check` (167 unit tests), Playwright main 56/56, all six scenario suites, PWA 6/6, and `output/audit/polish-shots.ts` screenshots of every state in five viewports (iPhone 15 Plus Safari and standalone, iPhone SE, desktop 1366, landscape) with no overflow. Not verified on a physical iPhone.
 
 ## Key audit findings (summary)
 
@@ -202,8 +366,11 @@ Work (Codex brief, Claude review):
 
 ## Open questions for the owner
 
-- M6 (cold-start screen) is approved and next; no open questions yet.
-- M7 (Home Screen web app): details and hosting (stay on Render or switch) to be decided with the owner when M7 starts.
+- Does the free staging service exist yet (its URL)? M7 needs it for real-iPhone testing before its merge.
+- M7: rebalance the portrait table for the taller standalone screen (430×932), or keep the M4 layout?
+- Build a private deck slot for a deck the owner scans (never committed)? Not yet agreed.
+- Per-suit court figures for either deck? A possible follow-up.
+- M7: create the free staging service in Render (settings in "Milestone 7 plan"); Claude can't do it from here.
 
 ## Verification status and unverified areas
 

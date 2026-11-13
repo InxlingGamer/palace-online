@@ -100,7 +100,7 @@ test("seven restriction is shown only to the affected player", async ({ browser 
   test.skip(scenario !== "seven-restriction", "Different deterministic scenario");
   const players = await createReadyGame(browser);
   await players.playerA.locator('.hand [data-card-rank="7"]').click();
-  await players.playerA.getByRole("button", { name: "Play 1" }).click();
+  await players.playerA.getByRole("button", { name: /^Play / }).click();
   await players.playerA.getByRole("button", { name: /Higher/ }).click();
 
   const recipientAlert = players.playerB.getByRole("status", { name: "Play higher than seven" });
@@ -200,8 +200,8 @@ test("only the current player can pick up even with a legal card", async ({ brow
   const players = await createReadyGame(browser);
   try {
     await expect(players.playerB.getByRole("button", { name: "Pick up pile" })).toHaveCount(0);
-    await expect(players.playerB.getByRole("button", { name: "Play cards" })).toBeDisabled();
-    await expect(players.playerB.locator(".action-dock")).toContainText("Waiting for Ada.");
+    await expect(players.playerB.getByRole("button", { name: /^Play/ })).toHaveCount(0);
+    await expect(players.playerB.locator(".action-dock")).toContainText("Waiting for Ada");
     for (const page of [players.playerA, players.playerB]) await expectNoViewportOverflow(page);
     await expect(players.playerA.getByRole("button", { name: "Pick up pile" })).toBeEnabled();
     await players.playerA.getByRole("button", { name: "Pick up pile" }).click();
@@ -230,7 +230,7 @@ for (const reducedMotion of [false, true]) {
       for (const page of pages)
         await page.emulateMedia({ reducedMotion: reducedMotion ? "reduce" : "no-preference" });
       await players.playerA.locator('.hand [data-card-rank="10"]').click();
-      await players.playerA.getByRole("button", { name: "Play 1" }).click();
+      await players.playerA.getByRole("button", { name: /^Play / }).click();
       await Promise.all(
         pages.map(async (page) => {
           await expect(

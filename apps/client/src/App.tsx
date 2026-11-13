@@ -20,13 +20,27 @@ import {
 } from "@palace/shared";
 import { createActionSender, shouldAcceptSnapshot } from "./action-sender";
 import { Card, CardBack } from "./cards";
+import { DeckPicker } from "./DeckPicker";
 import { Hand } from "./hand";
-import { lastMoveText, requirementText } from "./table-copy";
+import { lastMoveText, playLabel, requirementText, statusText } from "./table-copy";
 import { canPickUpPile } from "./pickup";
 import { useSound } from "./audio";
 import { ResultOverlay, SevenRestrictionAlert } from "./feedback";
 import { restrictionForViewer } from "./restriction";
 import { deriveVisualEvents } from "./visual-events";
+
+import { api, currentBootId, rememberBootId, storedBootId, ServerWakingError } from "./api";
+import { serverRestarted, wakingBanner, WAKING_DELAY_MS } from "./server-wake";
+
+import {
+  forgetRoom,
+  loadSaved,
+  markPresented,
+  rememberRoom,
+  savedName,
+  savedRoom,
+} from "./storage";
+import { rejoinNotice } from "./rejoin";
 
 const rankValue = new Map<Rank, number>(NORMAL_RANKS.map((rank, index) => [rank, index]));
 const handRanks = [Rank.Two, ...NORMAL_RANKS] as const;
@@ -53,17 +67,6 @@ interface CardFlight {
 
 function roomFromPath(): string | null {
   return /^\/room\/([A-Z2-9]{6})$/i.exec(window.location.pathname)?.[1]?.toUpperCase() ?? null;
-}
-
-async function api<T>(url: string, init: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...init.headers },
-    credentials: "include",
-  });
-  const body = (await response.json()) as T & { error?: { message: string } };
-  if (!response.ok) throw new Error(body.error?.message ?? "Request failed.");
-  return body;
 }
 
 function FlightLayer({ flights }: { flights: CardFlight[] }) {
@@ -155,27 +158,69 @@ function isLegal(state: PublicGameState, rank: Rank): boolean {
   return rankValue.get(rank)! >= rankValue.get(top.rank)!;
 }
 
+/** The last card of the match, lifted into a spotlight before the result screen. */
+function FinalMoment({ cards, playerName }: { cards: CardType[]; playerName: string | null }) {
+  const many = cards.length > 1;
+  return (
+    <div
+      className={`final-moment final-moment--${playerName === null ? "you" : "opponent"}`}
+      data-final-play="true"
+      role="status"
+      aria-label={`${playerName ?? "Your"}${playerName ? "'s" : ""} final ${many ? "cards" : "card"}`}
+    >
+      <div className="final-moment__veil" aria-hidden="true" />
+      <div className="final-moment__stage">
+        <p className="final-moment__eyebrow">{many ? "Final cards" : "Final card"}</p>
+        <div
+          className="final-moment__cards"
+          style={{ "--final-count": cards.length } as CSSProperties}
+        >
+          {cards.map((card, index) => (
+            <div
+              key={card.id}
+              className="final-moment__card"
+              style={{ "--final-offset": index - (cards.length - 1) / 2 } as CSSProperties}
+            >
+              <Card card={card} />
+            </div>
+          ))}
+        </div>
+        <p className="final-moment__caption">
+          {playerName === null ? "You go out" : `${playerName} goes out`}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function Lobby({
   initialCode,
   onEnter,
+  notice,
 }: {
   initialCode: string;
+  notice: string;
   onEnter: (state: PublicGameState) => void;
 }) {
-  const [name, setName] = useState("");
+  const [name, setName] = useState(savedName);
   const [code, setCode] = useState(initialCode);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [waking, setWaking] = useState(false);
 
   const submit = async (mode: "create" | "join", event: FormEvent) => {
     event.preventDefault();
     setError("");
     setBusy(true);
+    setWaking(false);
     try {
       const result = await api<{ roomCode: string; state: PublicGameState }>(
         mode === "create" ? "/api/rooms" : `/api/rooms/${code.toUpperCase()}/join`,
         { method: "POST", body: JSON.stringify({ name }) },
+        () => setWaking(true),
       );
+      rememberRoom(result.roomCode, name.trim());
+      await rememberBootId(result.roomCode);
       window.history.pushState({}, "", `/room/${result.roomCode}`);
       onEnter(result.state);
     } catch (reason) {
@@ -230,10 +275,29 @@ function Lobby({
               inputMode="text"
             />
           </label>
+          <DeckPicker />
           <button className="button button--gold" disabled={busy}>
-            {busy ? (code ? "Joining…" : "Creating…") : code ? "Join room" : "Create room"}
+            {busy
+              ? waking
+                ? "Waking the table…"
+                : code
+                  ? "Joining…"
+                  : "Creating…"
+              : code
+                ? "Join room"
+                : "Create room"}
           </button>
         </form>
+        {busy && waking && (
+          <p className="lobby-hint">
+            The server naps after 15 quiet minutes. This can take about a minute.
+          </p>
+        )}
+        {notice && (
+          <p className="lobby-hint" role="status">
+            {notice}
+          </p>
+        )}
         {error && (
           <p className="error" role="alert">
             {error}
@@ -245,9 +309,24 @@ function Lobby({
 }
 
 export function App() {
-  const initialRoom = useMemo(roomFromPath, []);
+  const pathRoom = useMemo(roomFromPath, []);
+  const initialRoom = useMemo(
+    () => pathRoom ?? (window.location.pathname === "/" ? savedRoom() : null),
+    [pathRoom],
+  );
+  // Decided once at mount: a failed restore below forgets the saved room.
+  const ownRoom = useMemo(
+    () =>
+      initialRoom !== null && (savedRoom() === initialRoom || storedBootId(initialRoom) !== null),
+    [initialRoom],
+  );
   const [state, setState] = useState<PublicGameState | null>(null);
   const [loadingRoom, setLoadingRoom] = useState(Boolean(initialRoom));
+  const [loadingWaking, setLoadingWaking] = useState(false);
+  const [restarted, setRestarted] = useState(false);
+  const [online, setOnline] = useState(navigator.onLine);
+  const [unreachableSince, setUnreachableSince] = useState<number | null>(null);
+  const [now, setNow] = useState(Date.now);
   const [selected, setSelected] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
@@ -281,24 +360,37 @@ export function App() {
     socketRef.current?.disconnect();
     const socket = io({ auth: { roomCode }, withCredentials: true });
     socketRef.current = socket;
+    setRestarted(false);
+    const unreachable = (retrying: boolean) => {
+      setConnection(retrying ? "reconnecting" : "offline");
+      setUnreachableSince((since) => since ?? Date.now());
+    };
+    setUnreachableSince(Date.now());
     setConnection("reconnecting");
-    socket.on("connect", () => setConnection("connected"));
-    socket.on("disconnect", (reason) =>
-      setConnection(reason === "io server disconnect" ? "offline" : "reconnecting"),
-    );
+    socket.on("connect", () => {
+      setConnection("connected");
+      setUnreachableSince(null);
+    });
+    socket.on("disconnect", (reason) => unreachable(reason !== "io server disconnect"));
     socket.on("connect_error", (error) => {
-      setConnection("offline");
+      unreachable(socket.active);
       // The server no longer knows this seat (restart, cleanup, or revoked session): stop retrying.
       if (error.message !== "Invalid room session") return;
       socket.disconnect();
-      setState(
-        (current) =>
-          current && {
-            ...current,
-            phase: "expired",
-            message: "This table is no longer available.",
-          },
-      );
+      const stored = storedBootId(roomCode);
+      // Decide the copy before showing the overlay so it never flips from "expired" to "closed".
+      void currentBootId().then((bootId) => {
+        if (socketRef.current !== socket) return;
+        setRestarted(serverRestarted(stored, bootId));
+        setState(
+          (current) =>
+            current && {
+              ...current,
+              phase: "expired",
+              message: "This table is no longer available.",
+            },
+        );
+      });
     });
     socket.io.on("reconnect_failed", () => setConnection("offline"));
     socket.on("state:snapshot", (snapshot: PublicGameState) => {
@@ -313,15 +405,62 @@ export function App() {
 
   useEffect(() => {
     if (!initialRoom) return;
-    void api<{ state: PublicGameState }>(`/api/rooms/${initialRoom}/reconnect`, { method: "POST" })
-      .then(({ state: restored }) => {
+    let active = true;
+    void api<{ state: PublicGameState }>(
+      `/api/rooms/${initialRoom}/reconnect`,
+      { method: "POST" },
+      () => {
+        if (active) setLoadingWaking(true);
+      },
+    )
+      .then(async ({ state: restored }) => {
+        await rememberBootId(initialRoom);
+        if (!active) return;
+        rememberRoom(initialRoom);
+        window.history.replaceState({}, "", `/room/${initialRoom}`);
         snapshotRef.current = restored;
         setState(restored);
         connect(initialRoom);
       })
-      .catch(() => setNotice("That saved room session has expired. Create or join another room."))
-      .finally(() => setLoadingRoom(false));
-  }, [connect, initialRoom]);
+      .catch(async (reason: unknown) => {
+        if (reason instanceof ServerWakingError) {
+          if (active) setNotice(reason.message);
+          return;
+        }
+        // An invite link to a table we never sat at keeps our saved table and needs no notice.
+        if (savedRoom() === initialRoom) forgetRoom();
+        if (!ownRoom) return;
+        const stored = storedBootId(initialRoom);
+        const current = await currentBootId();
+        if (active) setNotice(rejoinNotice(stored, current));
+      })
+      .finally(() => {
+        if (active) setLoadingRoom(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [connect, initialRoom, ownRoom]);
+
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine);
+    window.addEventListener("online", update);
+    window.addEventListener("offline", update);
+    return () => {
+      window.removeEventListener("online", update);
+      window.removeEventListener("offline", update);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (unreachableSince === null) return;
+    setNow(Date.now());
+    const timer = window.setTimeout(
+      () => setNow(Date.now()),
+      Math.max(0, unreachableSince + WAKING_DELAY_MS + 1 - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [unreachableSince]);
 
   useEffect(() => {
     if (!state) return;
@@ -334,8 +473,8 @@ export function App() {
 
       for (const event of events) {
         if (event.type === "starting-deal") {
-          if (sessionStorage.getItem(`palace-deal-${event.gameId}`)) continue;
-          sessionStorage.setItem(`palace-deal-${event.gameId}`, "true");
+          if (loadSaved(`palace-deal-${event.gameId}`)) continue;
+          markPresented(`palace-deal-${event.gameId}`);
           for (let index = 0; index < 3; index += 1)
             nextFlights.push({
               key: `${event.gameId}-hidden-${index}`,
@@ -455,13 +594,13 @@ export function App() {
     resultGameRef.current = state.gameId;
     setPresentedResult(null);
     const key = `palace-result-${state.gameId}-${state.you.id}`;
-    const alreadyPresented = sessionStorage.getItem(key) === "true";
+    const alreadyPresented = loadSaved(key) === "true";
     const present = () => {
       resultTimerRef.current = null;
       setAnimateResult(!alreadyPresented);
       setPresentedResult(state.gameId);
       if (!alreadyPresented) {
-        sessionStorage.setItem(key, "true");
+        markPresented(key);
         sound.play(state.winnerId === state.you.id ? "win" : "lose");
       }
     };
@@ -507,10 +646,10 @@ export function App() {
   };
 
   useEffect(() => {
-    if (!notice) return;
+    if (!notice || !state) return;
     const timer = window.setTimeout(() => setNotice(""), 4000);
     return () => window.clearTimeout(timer);
-  }, [notice]);
+  }, [notice, state]);
 
   useEffect(() => {
     if (state?.phase === "finished" || state?.phase === "expired") setNotice("");
@@ -522,10 +661,18 @@ export function App() {
         <div className="brand-mark">
           <b>P</b>
         </div>
-        <p>Reconnecting…</p>
+        <p role="status">{loadingWaking ? "Waking the table…" : "Reconnecting…"}</p>
       </main>
     );
-  if (!state) return <Lobby initialCode={initialRoom ?? ""} onEnter={enter} />;
+  if (!state) return <Lobby initialCode={pathRoom ?? ""} onEnter={enter} notice={notice} />;
+
+  const banner = wakingBanner(
+    connection === "connected",
+    unreachableSince,
+    now,
+    online,
+    connection !== "offline",
+  );
 
   const yourTurn = state.currentTurnPlayerId === state.you.id;
   const pendingSeven = state.pendingSevenChoiceFor === state.you.id;
@@ -534,11 +681,14 @@ export function App() {
     yourTurn &&
     state.you.hand.length > 0 &&
     !state.you.hand.some(({ rank }) => isLegal(state, rank));
-  const holdingFinalPlay =
-    state.phase === "finished" &&
-    state.resultReason === "finished" &&
-    state.lastPlay !== null &&
-    presentedResult !== state.gameId;
+  const finishedByPlay =
+    state.phase === "finished" && state.resultReason === "finished" && state.lastPlay !== null;
+  const holdingFinalPlay = finishedByPlay && presentedResult !== state.gameId;
+  // The spotlight stays behind the result screen as it fades in, so the two moments cross-fade.
+  // A result shown again (reload, rejoin) skips it.
+  const showFinalMoment =
+    finishedByPlay && (holdingFinalPlay || (presentedResult === state.gameId && animateResult));
+  const hiddenPhase = state.you.cardPhase === "hidden-field";
   const selectedRank = state.you.hand.find(({ id }) => id === selected[0])?.rank;
   const sortedHand = [...state.you.hand].sort(
     (left, right) => handRankValue.get(left.rank)! - handRankValue.get(right.rank)!,
@@ -573,6 +723,7 @@ export function App() {
   };
 
   const leaveToLobby = () => {
+    forgetRoom();
     senderRef.current?.dispose();
     senderRef.current = null;
     setPending(false);
@@ -628,13 +779,24 @@ export function App() {
         </div>
       </header>
 
-      {connection !== "connected" && state.phase !== "expired" && (
+      {banner !== "hidden" && state.phase !== "expired" && (
         <button
           className="connection-notice"
           role="status"
           onClick={() => socketRef.current?.connect()}
         >
-          {connection === "offline" ? "Offline — tap to retry" : "Reconnecting…"}
+          <span>
+            {banner === "offline"
+              ? "You're offline. Waiting for a connection…"
+              : banner === "stopped"
+                ? "Disconnected. Tap to reconnect"
+                : banner === "waking"
+                  ? "Waking the table…"
+                  : "Reconnecting…"}
+          </span>
+          {banner === "waking" && (
+            <small>The server naps after 15 quiet minutes. This can take about a minute.</small>
+          )}
         </button>
       )}
       <section className="table" aria-label="Palace card table">
@@ -665,9 +827,12 @@ export function App() {
             )}
           </div>
           <div className="opponent-hand" aria-label={`${opponent?.handCount ?? 0} opponent cards`}>
-            {Array.from({ length: Math.min(opponent?.handCount ?? 0, 12) }, (_, index) => (
+            {Array.from({ length: Math.min(opponent?.handCount ?? 0, 10) }, (_, index) => (
               <CardBack key={index} />
             ))}
+            {(opponent?.handCount ?? 0) > 10 && (
+              <span className="opponent-hand__more">+{opponent!.handCount - 10}</span>
+            )}
           </div>
           <FieldRow
             selectedField={state.opponentSelectedField}
@@ -677,7 +842,14 @@ export function App() {
         </div>
 
         <div className="table-center">
-          {lastMoveText(state) && <div className="last-move">{lastMoveText(state)}</div>}
+          {/* Always rendered so the pile never shifts when the first move appears. */}
+          <div className="last-move-slot">
+            {lastMoveText(state) && !showFinalMoment && (
+              <div className="last-move" key={`${state.revision}`}>
+                {lastMoveText(state)}
+              </div>
+            )}
+          </div>
           <div className="deck-stack">
             <CardBack
               label={
@@ -694,21 +866,7 @@ export function App() {
             <small>{drawBusy ? "Drawing…" : "Draw pile"}</small>
           </div>
           <div className={`play-stack ${state.burnedCount ? "play-stack--active" : ""}`}>
-            {holdingFinalPlay && state.lastPlay ? (
-              <div className="final-play" data-final-play="true" aria-label="Final play">
-                {state.lastPlay.cards.map((card, index, cards) => (
-                  <div
-                    key={card.id}
-                    style={{
-                      transform: `translateX(${(index - (cards.length - 1) / 2) * 10}px) rotate(${(index - (cards.length - 1) / 2) * 5}deg)`,
-                    }}
-                  >
-                    <Card card={card} />
-                  </div>
-                ))}
-                <small>{state.lastPlay.cards.length === 1 ? "Final card" : "Final cards"}</small>
-              </div>
-            ) : state.playPile.length ? (
+            {state.playPile.length ? (
               <div className="pile-fan">
                 {state.playPile.slice(-4).map((card, index, cards) => (
                   <div
@@ -726,7 +884,7 @@ export function App() {
                 <small>Play pile</small>
               </div>
             )}
-            {!holdingFinalPlay && state.playPile.length > 1 && (
+            {state.playPile.length > 1 && (
               <span className="count-badge">{state.playPile.length}</span>
             )}
           </div>
@@ -736,18 +894,15 @@ export function App() {
           </div>
         </div>
 
-        <div className="status-banner" aria-live="polite">
-          <span className={yourTurn ? "turn-dot turn-dot--yours" : "turn-dot"} />{" "}
-          <b>
-            {state.phase === "finished"
-              ? "Game over"
-              : yourTurn
-                ? "Your turn"
-                : opponent
-                  ? `${opponent.name}'s turn`
-                  : "Waiting"}
-          </b>
-          <span>{requirementText(state)}</span>
+        <div
+          className={`status-banner ${
+            state.phase === "playing" && (yourTurn || pendingSeven) ? "status-banner--yours" : ""
+          }`}
+          aria-live="polite"
+        >
+          <span className="turn-dot" aria-hidden="true" />
+          <b>{statusText(state)}</b>
+          {state.phase === "playing" && <span className="sr-only">{requirementText(state)}</span>}
         </div>
 
         <div className="player-zone">
@@ -796,10 +951,14 @@ export function App() {
       <SevenRestrictionAlert direction={sevenRestriction} />
       <FlightLayer flights={flights} />
 
-      <div className={`action-dock ${state.phase === "finished" ? "action-dock--hidden" : ""}`}>
+      <div
+        className={`action-dock ${state.phase === "playing" ? "action-dock--play" : ""} ${
+          state.phase === "finished" ? "action-dock--hidden" : ""
+        }`}
+      >
         {state.phase === "lobby" && (
           <>
-            <div>
+            <div className="dock-copy">
               <b>{opponent ? "Both seats claimed" : "Waiting for another player"}</b>
               <span>
                 {opponent
@@ -818,11 +977,9 @@ export function App() {
         )}
         {state.phase === "setup" && !state.you.setupComplete && (
           <>
-            <div>
+            <div className="dock-copy">
               <b>Choose 3 cards</b>
-              <span>
-                {selected.length}/3 cards selected · they turn face down after confirmation
-              </span>
+              <span>{selected.length}/3 selected · they turn face down once locked in</span>
             </div>
             <button
               className="button button--gold"
@@ -834,100 +991,97 @@ export function App() {
           </>
         )}
         {state.phase === "setup" && state.you.setupComplete && (
-          <div>
+          <div className="dock-copy dock-copy--center">
             <b>Selection saved</b>
             <span>Waiting for {opponent?.name ?? "the other player"}.</span>
           </div>
         )}
         {state.phase === "playing" && pendingSeven && (
-          <>
-            <div>
-              <b>Choose a direction</b>
-              <span>The other player must follow it.</span>
-            </div>
-            <div className="button-pair">
-              <button
-                className="button"
-                disabled={pending}
-                onClick={() => void act({ type: "CHOOSE_SEVEN_DIRECTION", direction: "lower" })}
-              >
-                ↓ Lower
-              </button>
-              <button
-                className="button button--gold"
-                disabled={pending}
-                onClick={() => void act({ type: "CHOOSE_SEVEN_DIRECTION", direction: "higher" })}
-              >
-                ↑ Higher
-              </button>
-            </div>
-          </>
+          <div className="button-pair">
+            <button
+              className="button"
+              disabled={pending}
+              onClick={() => void act({ type: "CHOOSE_SEVEN_DIRECTION", direction: "lower" })}
+            >
+              ↓ Lower
+            </button>
+            <button
+              className="button button--gold"
+              disabled={pending}
+              onClick={() => void act({ type: "CHOOSE_SEVEN_DIRECTION", direction: "higher" })}
+            >
+              ↑ Higher
+            </button>
+          </div>
         )}
-        {state.phase === "playing" && !pendingSeven && (
-          <>
-            <div>
-              <b>
-                {selected.length
-                  ? `${selected.length} × ${selectedRank}`
-                  : yourTurn
-                    ? noLegalCard
-                      ? "No legal card"
-                      : "Choose a card"
-                    : "Waiting"}
-              </b>
-              <span>
-                {yourTurn
-                  ? noLegalCard
-                    ? "Pick up the pile."
-                    : "Power cards are always legal."
-                  : `Waiting for ${opponent?.name ?? "the other player"}.`}
-              </span>
-            </div>
-            <div className="button-pair">
-              {canPickup && (
-                <button
-                  className="button button--danger"
-                  disabled={pending}
-                  onClick={() => void act({ type: "PICK_UP_PILE" })}
-                >
-                  Pick up pile
-                </button>
-              )}
+        {state.phase === "playing" && !pendingSeven && !yourTurn && (
+          <div className="dock-waiting" role="status">
+            <span aria-hidden="true" />
+            {state.pendingSevenChoiceFor
+              ? `${opponent?.name ?? "The other player"} is choosing higher or lower…`
+              : `Waiting for ${opponent?.name ?? "the other player"}…`}
+          </div>
+        )}
+        {state.phase === "playing" && !pendingSeven && yourTurn && (
+          <div className="button-pair">
+            {canPickup && (
               <button
-                className="button button--gold"
-                disabled={pending || !yourTurn || selected.length === 0}
-                onClick={() => void act({ type: "PLAY_CARDS", cardIds: selected })}
+                className={`button ${noLegalCard ? "button--gold" : "button--quiet"}`}
+                disabled={pending}
+                onClick={() => void act({ type: "PICK_UP_PILE" })}
               >
-                Play {selected.length || "cards"}
+                Pick up pile
               </button>
-            </div>
-          </>
+            )}
+            {hiddenPhase ? (
+              <span className="dock-hint">Flip a face-down card</span>
+            ) : (
+              !noLegalCard && (
+                <button
+                  className="button button--gold"
+                  disabled={pending || selected.length === 0}
+                  onClick={() => void act({ type: "PLAY_CARDS", cardIds: selected })}
+                >
+                  {playLabel(selected.length, selectedRank)}
+                </button>
+              )
+            )}
+          </div>
         )}
         {state.phase === "expired" && (
           <>
-            <div>
-              <b>Room expired</b>
-              <span>The table could not be restored.</span>
+            <div className="dock-copy">
+              <b>{restarted ? "Table closed" : "Room expired"}</b>
+              <span>
+                {restarted
+                  ? "The server restarted while the table was quiet, so this game ended. Start a new table from home."
+                  : "The table could not be restored."}
+              </span>
             </div>
-            <button
-              className="button button--gold"
-              onClick={() => {
-                window.history.pushState({}, "", "/");
-                setState(null);
-              }}
-            >
+            <button className="button button--gold" onClick={leaveToLobby}>
               Return home
             </button>
           </>
         )}
       </div>
+      {showFinalMoment && state.lastPlay && (
+        <FinalMoment
+          cards={state.lastPlay.cards}
+          playerName={
+            state.lastPlay.playerId === state.you.id ? null : (opponent?.name ?? "Opponent")
+          }
+        />
+      )}
       {state.phase === "finished" && presentedResult === state.gameId && (
         <ResultOverlay
           winner={state.winnerId === state.you.id}
           forfeit={state.resultReason === "forfeit"}
+          opponentName={opponent?.name ?? "Opponent"}
           turnCount={state.stats.turnCount}
-          pickupCount={state.stats.pickups[state.you.id] ?? 0}
+          yourPickups={state.stats.pickups[state.you.id] ?? 0}
+          opponentPickups={opponent ? (state.stats.pickups[opponent.id] ?? 0) : 0}
           rematchRequested={state.you.ready}
+          opponentWantsRematch={opponent?.ready ?? false}
           pending={pending}
           animate={animateResult}
           onLobby={leaveToLobby}

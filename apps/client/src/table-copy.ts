@@ -21,6 +21,34 @@ export function lastMoveText(
         : `${count === 3 ? "three" : "four"} ${rank}s`;
   return `${name} played ${group}`;
 }
+/** One short, calm status line for the table: whose turn it is, never the rules. */
+export function statusText(
+  state: Pick<
+    PublicGameState,
+    "phase" | "you" | "opponent" | "currentTurnPlayerId" | "pendingSevenChoiceFor" | "winnerId"
+  >,
+): string {
+  const other = state.opponent?.name ?? "Opponent";
+  switch (state.phase) {
+    case "lobby":
+      return "Waiting to start";
+    case "setup":
+      return state.you.setupComplete ? `Waiting for ${other}` : "Setting up";
+    case "finished":
+      return state.winnerId === state.you.id ? "You win" : `${other} wins`;
+    case "expired":
+      return "Table closed";
+  }
+  if (state.pendingSevenChoiceFor === state.you.id) return "Choose higher or lower";
+  if (state.pendingSevenChoiceFor) return `${other} is choosing`;
+  return state.currentTurnPlayerId === state.you.id ? "Your turn" : `${other}’s turn`;
+}
+/** "Play", "Play 9", or "Play 2 × 9" for the dock button. */
+export function playLabel(count: number, rank: Rank | undefined): string {
+  if (!count || !rank) return "Play";
+  return count === 1 ? `Play ${rank}` : `Play ${count} × ${rank}`;
+}
+/** The full rule for the current turn, read to screen readers only (sighted players see dimmed cards). */
 export function requirementText(
   state: Pick<
     PublicGameState,

@@ -1,5 +1,147 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
 
+test("Home Screen metadata and full-size icons are available", async ({ page, request }) => {
+  await page.goto("/");
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute(
+    "href",
+    "/manifest.webmanifest",
+  );
+  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute(
+    "href",
+    "/icons/apple-touch-icon.png",
+  );
+  for (const [name, content] of [
+    ["apple-mobile-web-app-capable", "yes"],
+    ["mobile-web-app-capable", "yes"],
+    ["apple-mobile-web-app-status-bar-style", "black-translucent"],
+    ["apple-mobile-web-app-title", "Palace"],
+  ])
+    await expect(page.locator(`meta[name="${name}"]`)).toHaveAttribute("content", content!);
+  const manifest = await request.get("/manifest.webmanifest");
+  const body: unknown = await manifest.json();
+  expect(body).toMatchObject({
+    name: "Palace Online",
+    short_name: "Palace",
+    display: "standalone",
+    icons: [
+      { src: "/icons/icon-192.png", sizes: "192x192", purpose: "any" },
+      { src: "/icons/icon-512.png", sizes: "512x512", purpose: "any" },
+      { src: "/icons/icon-maskable-512.png", sizes: "512x512", purpose: "maskable" },
+    ],
+  });
+  for (const [url, size] of [
+    ["icon-192.png", 192],
+    ["icon-512.png", 512],
+    ["icon-maskable-512.png", 512],
+    ["apple-touch-icon.png", 180],
+    ["favicon-32.png", 32],
+  ] as const) {
+    const response = await request.get(`/icons/${url}`);
+    expect(response.headers()["content-type"]).toContain("image/png");
+    const dimensions = await page.evaluate(async (src) => {
+      const image = new Image();
+      image.src = src;
+      await image.decode();
+      return [image.naturalWidth, image.naturalHeight];
+    }, `/icons/${url}`);
+    expect(dimensions).toEqual([size, size]);
+  }
+});
+
+test("home launch rejoins and an unknown room keeps the name", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("Display name").fill("Ada");
+  await page.getByRole("button", { name: "Create room" }).click();
+  await expect(page.getByRole("button", { name: /Copy invitation/ })).toBeVisible();
+  const roomURL = page.url();
+  await page.goto("/");
+  await expect(page).toHaveURL(roomURL);
+  // A missing room forgets the saved code, while preserving the display name.
+  await page.context().clearCookies();
+  await page.evaluate(() => localStorage.setItem("palace-last-room", "ZZZ999"));
+  await page.goto("/");
+  await expect(page.getByLabel("Display name")).toHaveValue("Ada");
+  await expect(page.getByRole("status")).toHaveText("Your last table ended.");
+  expect(await page.evaluate(() => localStorage.getItem("palace-last-room"))).toBeNull();
+});
+
+async function noOverflow(page: Page) {
+  expect(
+    await page.evaluate(() => [
+      document.documentElement.scrollWidth - innerWidth,
+      document.documentElement.scrollHeight - innerHeight,
+    ]),
+  ).toEqual([0, 0]);
+}
+
+test("boot waking and offline screens recover and clear simulated safe areas", async ({
+  page,
+  context,
+}) => {
+  await page.setViewportSize({ width: 430, height: 932 });
+  await page.route("**/healthz", () => undefined);
+  await page.goto("/");
+  await page.addStyleTag({ content: ":root { --safe-top: 59px; --safe-bottom: 34px; }" });
+  await expect(page.getByRole("heading", { name: "Waking the table…" })).toBeVisible();
+  await expect(page.getByRole("status")).toContainText(
+    "The server naps after 15 quiet minutes. This can take about a minute.",
+  );
+  expect((await page.locator(".waking-content").boundingBox())!.y).toBeGreaterThanOrEqual(59);
+  await noOverflow(page);
+  for (const viewport of [
+    { width: 1366, height: 768 },
+    { width: 1920, height: 1080 },
+    { width: 430, height: 739 },
+    { width: 932, height: 430 },
+  ]) {
+    await page.setViewportSize(viewport);
+    const landscape = viewport.height === 430;
+    await page.addStyleTag({
+      content: `:root { --safe-top: 0px; --safe-bottom: ${landscape ? 21 : 0}px; --safe-left: ${landscape ? 59 : 0}px; --safe-right: ${landscape ? 59 : 0}px; }`,
+    });
+    const content = (await page.locator(".waking-content").boundingBox())!;
+    expect(content.y).toBeGreaterThanOrEqual(0);
+    expect(content.x).toBeGreaterThanOrEqual(landscape ? 59 : 0);
+    expect(content.x + content.width).toBeLessThanOrEqual(viewport.width - (landscape ? 59 : 0));
+    expect(content.y + content.height).toBeLessThanOrEqual(viewport.height - (landscape ? 21 : 0));
+    await noOverflow(page);
+  }
+  await page.setViewportSize({ width: 430, height: 932 });
+  await page.addStyleTag({
+    content:
+      ":root { --safe-top: 59px; --safe-bottom: 34px; --safe-left: 0px; --safe-right: 0px; }",
+  });
+  await context.setOffline(true);
+  await expect(
+    page.getByRole("heading", { name: "You're offline. Waiting for a connection…" }),
+  ).toBeVisible();
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await context.setOffline(false);
+  await expect(page.getByLabel("Display name")).toBeVisible();
+  expect((await page.locator(".lobby-panel").boundingBox())!.y).toBeGreaterThanOrEqual(59);
+  await noOverflow(page);
+});
+
+test("standalone portrait header and dock fill the safe-area edges", async ({ page }) => {
+  await page.setViewportSize({ width: 430, height: 932 });
+  await page.goto("/");
+  await page.addStyleTag({ content: ":root { --safe-top: 59px; --safe-bottom: 34px; }" });
+  await page.getByLabel("Display name").fill("Ada");
+  await page.getByRole("button", { name: "Create room" }).click();
+  await expect(page.locator(".game-header")).toBeVisible();
+  const header = page.locator(".game-header");
+  expect((await header.boundingBox())!.y).toBe(0);
+  expect(await header.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
+    "rgb(42, 25, 16)",
+  );
+  expect((await page.locator(".room-chip").boundingBox())!.y).toBeGreaterThanOrEqual(59);
+  const dock = (await page.locator(".action-dock").boundingBox())!;
+  expect(dock.y + dock.height).toBe(932);
+  const button = (await page.locator(".action-dock button").last().boundingBox())!;
+  expect(button.y + button.height).toBeLessThanOrEqual(898);
+  await noOverflow(page);
+});
+
 async function createPlayer(context: BrowserContext, name: string): Promise<Page> {
   const page = await context.newPage();
   await page.goto("/");
@@ -180,4 +322,306 @@ test("both players can draw at the same moment without a rejection", async ({ br
 
   await contextA.close();
   await contextB.close();
+});
+
+// Socket.IO connects over HTTP long-polling, then upgrades to a WebSocket (the client sends "5").
+// Cutting the socket before the upgrade completes leaves the page on a long-poll that can stay
+// open for the 25 s ping interval, so tests must wait for the upgrade first.
+function socketUpgraded(page: Page) {
+  return new Promise<void>((resolve) => {
+    page.on("websocket", (socket) => {
+      if (!socket.url().includes("/socket.io/")) return;
+      socket.on("framesent", ({ payload }) => {
+        if (payload === "5") resolve();
+      });
+    });
+  });
+}
+
+test("socket retries show waking feedback and recover", async ({ page }) => {
+  const upgraded = socketUpgraded(page);
+  // Install before the socket exists so upgraded WebSockets are intercepted too.
+  let blocked = false;
+  const connections: Array<() => Promise<void>> = [];
+  await page.routeWebSocket("**/socket.io/**", (socket) => {
+    if (blocked) {
+      void socket.close();
+      return;
+    }
+    const server = socket.connectToServer();
+    connections.push(async () => {
+      await socket.close();
+      await server.close();
+    });
+  });
+  await page.route("**/socket.io/**", async (route) => {
+    if (blocked) await route.abort();
+    else await route.continue();
+  });
+  await page.goto("/");
+  await page.getByLabel("Display name").fill("Ada");
+  await page.getByRole("button", { name: "Create room" }).click();
+  await expect(page.locator(".connection--connected")).toBeVisible();
+  // Explicitly cover the short portrait viewport in addition to configured landscape/desktop.
+  if (test.info().project.name === "iphone-portrait")
+    await page.setViewportSize({ width: 430, height: 739 });
+  await upgraded;
+  blocked = true;
+  for (const close of connections.splice(0)) await close();
+  const banner = page.locator(".connection-notice");
+  await expect(banner).toContainText("Reconnecting\u2026");
+  await expect(banner).toContainText("Waking the table\u2026", { timeout: 6500 });
+  await expect(banner).toContainText(
+    "The server naps after 15 quiet minutes. This can take about a minute.",
+  );
+  await expect(banner).toBeInViewport();
+  const bounds = (await banner.boundingBox())!;
+  expect(bounds.height).toBeGreaterThanOrEqual(44);
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    ),
+  ).toBe(0);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+    window.dispatchEvent(new Event("offline"));
+  });
+  await expect(banner).toContainText("You're offline. Waiting for a connection\u2026");
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
+    window.dispatchEvent(new Event("online"));
+  });
+  await expect(banner).toContainText("Waking the table\u2026");
+  blocked = false;
+  await banner.click();
+  await expect(banner).toHaveCount(0);
+});
+
+for (const changedBoot of [true, false]) {
+  test(`reload explains expired session (changed boot: ${changedBoot})`, async ({
+    page,
+    context,
+  }) => {
+    // Mobile-emulated WebKit on Linux CI intermittently crashes on reload (PR #3); desktop WebKit covers it.
+    test.skip(
+      Boolean(test.info().project.use.isMobile),
+      "reload crashes mobile WebKit on Linux CI",
+    );
+    await page.goto("/");
+    await page.getByLabel("Display name").fill("Ada");
+    await page.getByRole("button", { name: "Create room" }).click();
+    await expect(page.locator(".connection--connected")).toBeVisible();
+    const code = new URL(page.url()).pathname.split("/").at(-1)!;
+    await expect
+      .poll(() => page.evaluate((room) => localStorage.getItem(`palace-boot-${room}`), code))
+      .toBeTruthy();
+    if (changedBoot)
+      await page.evaluate(
+        (room) => localStorage.setItem(`palace-boot-${room}`, "fake-old-process"),
+        code,
+      );
+    await context.clearCookies();
+    await page.reload();
+    await expect(page.getByRole("status")).toHaveText(
+      changedBoot
+        ? "Your last table closed while the server was asleep. Create or join a new one."
+        : "Your last table ended.",
+    );
+  });
+}
+
+test("lobby retries a waking HTML response then enters the room", async ({ page }) => {
+  let release = false;
+  await page.route("**/api/rooms", async (route) => {
+    if (release) await route.continue();
+    else
+      await route.fulfill({ status: 503, contentType: "text/html", body: "<html>Waking</html>" });
+  });
+  await page.goto("/");
+  await page.getByLabel("Display name").fill("Ada");
+  await page.getByRole("button", { name: "Create room" }).click();
+  await expect(page.getByRole("button", { name: "Waking the table\u2026" })).toBeDisabled({
+    timeout: 6500,
+  });
+  release = true;
+  await expect(page.getByRole("button", { name: /Copy invitation/ })).toBeVisible();
+});
+
+for (const changedBoot of [true, false]) {
+  test(`socket rejection explains expiry (changed boot: ${changedBoot})`, async ({ page }) => {
+    const upgraded = socketUpgraded(page);
+    let reject = false;
+    const connections: Array<() => Promise<void>> = [];
+    await page.routeWebSocket("**/socket.io/**", (socket) => {
+      const server = socket.connectToServer();
+      // Engine.IO stays connected, but Socket.IO rejects the room namespace auth.
+      server.onMessage((message) => {
+        if (reject && typeof message === "string" && message.startsWith("40"))
+          socket.send('44{"message":"Invalid room session"}');
+        else if (!(reject && typeof message === "string" && message.startsWith("42")))
+          socket.send(message);
+      });
+      connections.push(async () => {
+        await socket.close();
+        await server.close();
+      });
+    });
+    await page.route("**/socket.io/**", async (route) => {
+      if (!reject) {
+        await route.continue();
+        return;
+      }
+      const response = await route.fetch();
+      const body = await response.text();
+      await route.fulfill({
+        response,
+        body: body
+          .split("\x1e")
+          .filter((packet) => !packet.startsWith("42"))
+          .map((packet) =>
+            packet.startsWith("40") ? '44{"message":"Invalid room session"}' : packet,
+          )
+          .join("\x1e"),
+      });
+    });
+    await page.goto("/");
+    await page.getByLabel("Display name").fill("Ada");
+    await page.getByRole("button", { name: "Create room" }).click();
+    await expect(page.locator(".connection--connected")).toBeVisible();
+    const code = new URL(page.url()).pathname.split("/").at(-1)!;
+    if (changedBoot)
+      await page.evaluate(
+        (room) => localStorage.setItem(`palace-boot-${room}`, "fake-old-process"),
+        code,
+      );
+    await upgraded;
+    reject = true;
+    for (const close of connections.splice(0)) await close();
+    await expect(page.locator(".action-dock")).toContainText(
+      changedBoot ? "Table closed" : "Room expired",
+    );
+    await expect(page.locator(".action-dock")).toContainText(
+      changedBoot
+        ? "The server restarted while the table was quiet, so this game ended. Start a new table from home."
+        : "The table could not be restored.",
+    );
+    await page.getByRole("button", { name: "Return home" }).click();
+    await page.goto("/");
+    await expect(page.getByLabel("Display name")).toHaveValue("Ada");
+    await expect(page.getByRole("button", { name: /Copy invitation/ })).toHaveCount(0);
+  });
+}
+
+test("reload progress reports a waking server and recovers", async ({ page }) => {
+  // Mobile-emulated WebKit on Linux CI intermittently crashes on reload (PR #3); desktop WebKit covers it.
+  test.skip(Boolean(test.info().project.use.isMobile), "reload crashes mobile WebKit on Linux CI");
+  await page.goto("/");
+  await page.getByLabel("Display name").fill("Ada");
+  await page.getByRole("button", { name: "Create room" }).click();
+  await expect(page.locator(".connection--connected")).toBeVisible();
+  let release = false;
+  await page.route("**/api/rooms/*/reconnect", async (route) => {
+    if (release) await route.continue();
+    else
+      await route.fulfill({ status: 200, contentType: "text/html", body: "<html>Waking</html>" });
+  });
+  await page.reload();
+  await expect(page.getByRole("status")).toHaveText("Reconnecting\u2026");
+  await expect(page.getByRole("status")).toHaveText("Waking the table\u2026", { timeout: 6500 });
+  release = true;
+  await expect(page.locator(".connection--connected")).toBeVisible();
+});
+
+test("card choices persist and affect only this player's cards", async ({ page, browser }) => {
+  // Mobile-emulated WebKit on Linux CI intermittently crashes on reload (PR #3); desktop WebKit covers it.
+  test.skip(Boolean(test.info().project.use.isMobile), "reload crashes mobile WebKit on Linux CI");
+  await page.goto("/");
+  // The Original deck (the long-standing look) is the default and has a single back.
+  await expect(page.getByRole("radio", { name: "Original", exact: true })).toBeChecked();
+  await expect(page.getByRole("radiogroup", { name: "Card back" })).toHaveCount(0);
+  // Exercise native radio keyboard navigation as well as touch/click labels.
+  await page.getByRole("radio", { name: "Original", exact: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("radio", { name: "Classic", exact: true })).toBeChecked();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("radio", { name: "Simple", exact: true })).toBeChecked();
+  await page.getByText("Felt", { exact: true }).click();
+  await expect(page.getByRole("radio", { name: "Felt", exact: true })).toBeChecked();
+  await page.reload();
+  await expect(page.getByRole("radio", { name: "Simple", exact: true })).toBeChecked();
+  await expect(page.getByRole("radio", { name: "Felt", exact: true })).toBeChecked();
+  const viewport = page.viewportSize()!;
+  const panel = await page.locator(".lobby-panel").boundingBox();
+  expect(panel).not.toBeNull();
+  expect(panel!.y).toBeGreaterThanOrEqual(0);
+  expect(panel!.y + panel!.height).toBeLessThanOrEqual(viewport.height);
+  await expect(page.getByRole("button", { name: "Create room" })).toBeInViewport();
+  expect(
+    await page.evaluate(() => ({
+      horizontal: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      vertical: document.documentElement.scrollHeight - document.documentElement.clientHeight,
+    })),
+  ).toEqual({ horizontal: 0, vertical: 0 });
+  await page.getByLabel("Display name").fill("Ada");
+  await page.getByRole("button", { name: "Create room" }).click();
+  const invitation = page.getByRole("button", { name: /Copy invitation/ });
+  await expect(invitation).toBeVisible();
+  const code = (await invitation.getAttribute("aria-label"))!.match(/[A-HJ-NP-Z2-9]{6}/)![0];
+  const otherContext = await browser.newContext();
+  try {
+    const other = await otherContext.newPage();
+    await other.goto(`/room/${code}`);
+    await other.getByLabel("Display name").fill("Ben");
+    await other.getByRole("button", { name: "Join room" }).click();
+    await expect(page.getByText("Ben", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "I'm ready" }).click();
+    await other.getByRole("button", { name: "I'm ready" }).click();
+    await expect(page.locator('.hand .card[data-deck="simple"]')).toHaveCount(6);
+    await expect(page.locator('.field-row--you .card--back[data-back="felt"]')).toHaveCount(3);
+    await expect(page.locator('.opponent-hand .card--back[data-back="felt"]')).toHaveCount(6);
+    await expect(page.locator('.deck-stack .card--back[data-back="felt"]').first()).toBeVisible();
+    await expect(other.locator('.hand .card[data-deck="original"]')).toHaveCount(6);
+    await expect(other.locator('.field-row--you .card--back[data-back="burgundy"]')).toHaveCount(3);
+    await page.reload();
+    await expect(page.locator('.hand .card[data-deck="simple"]')).toHaveCount(6);
+    await expect(page.locator('.field-row--you .card--back[data-back="felt"]')).toHaveCount(3);
+    await page.evaluate(() => localStorage.removeItem("palace-last-room"));
+    await page.goto("/");
+    await expect(page.getByRole("radio", { name: "Simple", exact: true })).toBeChecked();
+    await expect(page.getByRole("radio", { name: "Felt", exact: true })).toBeChecked();
+  } finally {
+    await otherContext.close();
+  }
+});
+
+test("deck picker fits the approved portrait and landscape lobby sizes", async ({ page }) => {
+  for (const viewport of [
+    { width: 430, height: 739 },
+    { width: 932, height: 430 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto("/");
+    for (const selector of [".hero", ".lobby-panel", ".deck-picker", ".lobby-form > .button"]) {
+      const box = await page.locator(selector).boundingBox();
+      expect(box).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport.width);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+    }
+    for (const option of await page.locator(".deck-tile, .back-swatch").all()) {
+      const box = await option.boundingBox();
+      expect(box!.width).toBeGreaterThanOrEqual(44);
+      expect(box!.height).toBeGreaterThanOrEqual(44);
+    }
+    expect(
+      await page.evaluate(
+        () =>
+          document.documentElement.scrollWidth <= innerWidth &&
+          document.documentElement.scrollHeight <= innerHeight,
+      ),
+    ).toBe(true);
+  }
 });
