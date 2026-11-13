@@ -118,9 +118,12 @@ export function Hand({
     if (!el) return;
     const measure = () => {
       const style = getComputedStyle(el);
+      // Card width can depend on the viewport height (clamp with dvh), so read the rendered card
+      // rather than the --card-w token, which getComputedStyle returns unresolved.
+      const card = el.querySelector<HTMLElement>("[data-card-id]");
       const next = handLayout(
         el.clientWidth - 8,
-        parseFloat(style.getPropertyValue("--card-w")),
+        card?.offsetWidth || parseFloat(style.getPropertyValue("--card-w")) || 70,
         count,
         parseFloat(style.getPropertyValue("--minimum-strip")),
       );
@@ -132,8 +135,13 @@ export function Hand({
     };
     const observer = new ResizeObserver(measure);
     observer.observe(el);
+    // Safari's toolbar changes the viewport height without resizing the hand's width.
+    window.addEventListener("resize", measure);
     measure();
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
   }, [count]);
   useEffect(() => {
     const el = ref.current;

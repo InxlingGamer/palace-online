@@ -1,17 +1,22 @@
 import { createContext, createElement, useContext, useState, type ReactNode } from "react";
 
-export type DeckId = "classic" | "simple";
-export type BackId = "red" | "blue" | "walnut" | "felt";
+export type DeckId = "original" | "classic" | "simple";
+export type BackId = "burgundy" | "red" | "blue" | "walnut" | "felt";
 export interface CardPreference {
   deck: DeckId;
   back: BackId;
 }
-export const DEFAULT_CARD_STYLE: CardPreference = { deck: "classic", back: "red" };
+export const DEFAULT_CARD_STYLE: CardPreference = { deck: "original", back: "burgundy" };
 export const DECKS: {
   id: DeckId;
   name: string;
   backs: [{ id: BackId; name: string }, ...{ id: BackId; name: string }[]];
 }[] = [
+  {
+    id: "original",
+    name: "Original",
+    backs: [{ id: "burgundy", name: "Burgundy" }],
+  },
   {
     id: "classic",
     name: "Classic",
@@ -36,7 +41,7 @@ export function parseCardPreference(raw: string | null): CardPreference {
       !value ||
       typeof value !== "object" ||
       !("deck" in value) ||
-      (value.deck !== "classic" && value.deck !== "simple")
+      !DECKS.some((deck) => deck.id === value.deck)
     )
       return { ...DEFAULT_CARD_STYLE };
     const deck = DECKS.find((deck) => deck.id === value.deck)!;

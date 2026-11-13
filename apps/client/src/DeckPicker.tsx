@@ -47,23 +47,25 @@ export function DeckPicker() {
           );
         })}
       </div>
-      <div className="back-swatches" role="radiogroup" aria-label="Card back">
-        {selectedDeck.backs.map((option) => (
-          <label className="deck-option" key={option.id}>
-            <input
-              type="radio"
-              name="card-back"
-              value={option.id}
-              checked={back === option.id}
-              onChange={() => setCardStyle({ deck, back: option.id })}
-            />
-            <span className="back-swatch">
-              <Preview preference={{ deck, back: option.id }} />
-              <b>{option.name}</b>
-            </span>
-          </label>
-        ))}
-      </div>
+      {selectedDeck.backs.length > 1 && (
+        <div className="back-swatches" role="radiogroup" aria-label="Card back">
+          {selectedDeck.backs.map((option) => (
+            <label className="deck-option" key={option.id}>
+              <input
+                type="radio"
+                name="card-back"
+                value={option.id}
+                checked={back === option.id}
+                onChange={() => setCardStyle({ deck, back: option.id })}
+              />
+              <span className="back-swatch">
+                <Preview preference={{ deck, back: option.id }} />
+                <b>{option.name}</b>
+              </span>
+            </label>
+          ))}
+        </div>
+      )}
     </fieldset>
   );
 }

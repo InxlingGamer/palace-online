@@ -1,6 +1,7 @@
 import { useId } from "react";
 import { Rank, Suit, rankLabel, type Card as CardType } from "@palace/shared";
 import { useCardStyle, type DeckId } from "./decks";
+import { OriginalBack, OriginalFace } from "./original-cards";
 
 const PATHS: Record<Suit, string> = {
   spades:
@@ -242,7 +243,8 @@ export function Card({
     "data-card-rank": card.rank,
     "data-deck": deck,
   };
-  const content = <Face card={card} deck={deck} />;
+  const content =
+    deck === "original" ? <OriginalFace card={card} /> : <Face card={card} deck={deck} />;
   return onClick ? (
     <button {...props} type="button" onClick={onClick} aria-pressed={selected}>
       {content}
@@ -265,66 +267,69 @@ export function CardBack({
   const { deck, back } = useCardStyle();
   const id = useId();
   const panel = back === "walnut" ? "#2A1910" : "#1B6141";
-  const content = (
-    <svg className="card__svg" viewBox="0 0 100 140" aria-hidden="true">
-      {deck === "classic" ? (
-        <svg x="6" y="6" width="88" height="128" viewBox="0 0 88 128">
-          <defs>
-            <clipPath id={id}>
-              <rect width="88" height="128" rx="3" />
-            </clipPath>
-          </defs>
-          <image
-            href={`/cards/classic/back-${back}.webp`}
-            width="88"
-            height="128"
-            preserveAspectRatio="xMidYMid slice"
-            clipPath={`url(#${id})`}
-          />
-        </svg>
-      ) : (
-        <>
-          <defs>
-            <pattern id={id} width="20" height="20" patternUnits="userSpaceOnUse">
-              <path
-                d="M0 10L10 0L20 10L10 20Z"
-                fill="none"
-                stroke="#E3B54A"
-                strokeOpacity=".35"
-                strokeWidth=".45"
-              />
-            </pattern>
-          </defs>
-          <rect x="6" y="6" width="88" height="128" rx="3" fill={panel} />
-          <rect
-            x="9"
-            y="9"
-            width="82"
-            height="122"
-            rx="2"
-            fill={`url(#${id})`}
-            stroke="#E3B54A"
-            strokeOpacity=".35"
-            strokeWidth=".5"
-          />
-          <circle cx="50" cy="70" r="22" fill={panel} />
-          <circle cx="50" cy="70" r="19.5" fill="none" stroke="#E3B54A" strokeWidth=".8" />
-          <text
-            className="card__monogram"
-            x="50"
-            y="80.5"
-            textAnchor="middle"
-            fontFamily="'Source Serif 4', Georgia, serif"
-            fontWeight="600"
-            fontSize="32"
-            fill="#E3B54A"
-          >
-            P
-          </text>
-        </>
-      )}
-    </svg>
-  );
+  const content =
+    deck === "original" ? (
+      <OriginalBack />
+    ) : (
+      <svg className="card__svg" viewBox="0 0 100 140" aria-hidden="true">
+        {deck === "classic" ? (
+          <svg x="6" y="6" width="88" height="128" viewBox="0 0 88 128">
+            <defs>
+              <clipPath id={id}>
+                <rect width="88" height="128" rx="3" />
+              </clipPath>
+            </defs>
+            <image
+              href={`/cards/classic/back-${back}.webp`}
+              width="88"
+              height="128"
+              preserveAspectRatio="xMidYMid slice"
+              clipPath={`url(#${id})`}
+            />
+          </svg>
+        ) : (
+          <>
+            <defs>
+              <pattern id={id} width="20" height="20" patternUnits="userSpaceOnUse">
+                <path
+                  d="M0 10L10 0L20 10L10 20Z"
+                  fill="none"
+                  stroke="#E3B54A"
+                  strokeOpacity=".35"
+                  strokeWidth=".45"
+                />
+              </pattern>
+            </defs>
+            <rect x="6" y="6" width="88" height="128" rx="3" fill={panel} />
+            <rect
+              x="9"
+              y="9"
+              width="82"
+              height="122"
+              rx="2"
+              fill={`url(#${id})`}
+              stroke="#E3B54A"
+              strokeOpacity=".35"
+              strokeWidth=".5"
+            />
+            <circle cx="50" cy="70" r="22" fill={panel} />
+            <circle cx="50" cy="70" r="19.5" fill="none" stroke="#E3B54A" strokeWidth=".8" />
+            <text
+              className="card__monogram"
+              x="50"
+              y="80.5"
+              textAnchor="middle"
+              fontFamily="'Source Serif 4', Georgia, serif"
+              fontWeight="600"
+              fontSize="32"
+              fill="#E3B54A"
+            >
+              P
+            </text>
+          </>
+        )}
+      </svg>
+    );
   const props = {
     className: `card card--back ${dramatic ? "card--dramatic" : ""}`,
     "aria-label": label,

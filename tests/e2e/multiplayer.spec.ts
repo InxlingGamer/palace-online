@@ -538,10 +538,13 @@ test("card choices persist and affect only this player's cards", async ({ page, 
   // Mobile-emulated WebKit on Linux CI intermittently crashes on reload (PR #3); desktop WebKit covers it.
   test.skip(Boolean(test.info().project.use.isMobile), "reload crashes mobile WebKit on Linux CI");
   await page.goto("/");
-  await expect(page.getByRole("radio", { name: "Classic", exact: true })).toBeChecked();
-  await expect(page.getByRole("radio", { name: "Red", exact: true })).toBeChecked();
+  // The Original deck (the long-standing look) is the default and has a single back.
+  await expect(page.getByRole("radio", { name: "Original", exact: true })).toBeChecked();
+  await expect(page.getByRole("radiogroup", { name: "Card back" })).toHaveCount(0);
   // Exercise native radio keyboard navigation as well as touch/click labels.
-  await page.getByRole("radio", { name: "Classic", exact: true }).focus();
+  await page.getByRole("radio", { name: "Original", exact: true }).focus();
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("radio", { name: "Classic", exact: true })).toBeChecked();
   await page.keyboard.press("ArrowRight");
   await expect(page.getByRole("radio", { name: "Simple", exact: true })).toBeChecked();
   await page.getByText("Felt", { exact: true }).click();
@@ -579,8 +582,8 @@ test("card choices persist and affect only this player's cards", async ({ page, 
     await expect(page.locator('.field-row--you .card--back[data-back="felt"]')).toHaveCount(3);
     await expect(page.locator('.opponent-hand .card--back[data-back="felt"]')).toHaveCount(6);
     await expect(page.locator('.deck-stack .card--back[data-back="felt"]').first()).toBeVisible();
-    await expect(other.locator('.hand .card[data-deck="classic"]')).toHaveCount(6);
-    await expect(other.locator('.field-row--you .card--back[data-back="red"]')).toHaveCount(3);
+    await expect(other.locator('.hand .card[data-deck="original"]')).toHaveCount(6);
+    await expect(other.locator('.field-row--you .card--back[data-back="burgundy"]')).toHaveCount(3);
     await page.reload();
     await expect(page.locator('.hand .card[data-deck="simple"]')).toHaveCount(6);
     await expect(page.locator('.field-row--you .card--back[data-back="felt"]')).toHaveCount(3);

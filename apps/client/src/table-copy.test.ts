@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Rank, Suit, type Card, type PublicGameState } from "@palace/shared";
-import { lastMoveText, requirementText } from "./table-copy";
+import { lastMoveText, playLabel, requirementText, statusText } from "./table-copy";
 const card = (id: string, rank: Rank): Card => ({ id, rank, suit: Suit.Clubs });
 
 function state(overrides: Partial<PublicGameState> = {}): PublicGameState {
@@ -92,6 +92,33 @@ describe("lastMoveText", () => {
         ),
       ).toBe(`Ben played ${phrase}`);
     }
+  });
+});
+describe("statusText", () => {
+  it("says only whose turn it is", () => {
+    expect(statusText(state())).toBe("Your turn");
+    expect(statusText(state({ currentTurnPlayerId: "B" }))).toBe("Ben’s turn");
+    expect(statusText(state({ restriction: { direction: "lower", targetPlayerId: "A" } }))).toBe(
+      "Your turn",
+    );
+  });
+  it("shows the direction prompt while a seven is unresolved", () => {
+    expect(statusText(state({ pendingSevenChoiceFor: "A" }))).toBe("Choose higher or lower");
+    expect(statusText(state({ pendingSevenChoiceFor: "B" }))).toBe("Ben is choosing");
+  });
+  it("names the winner and the other phases", () => {
+    expect(statusText(state({ phase: "finished", winnerId: "A" }))).toBe("You win");
+    expect(statusText(state({ phase: "finished", winnerId: "B" }))).toBe("Ben wins");
+    expect(statusText(state({ phase: "lobby" }))).toBe("Waiting to start");
+    expect(statusText(state({ phase: "expired" }))).toBe("Table closed");
+    expect(statusText(state({ phase: "setup" }))).toBe("Waiting for Ben");
+  });
+});
+describe("playLabel", () => {
+  it("names the selected rank and count", () => {
+    expect(playLabel(0, undefined)).toBe("Play");
+    expect(playLabel(1, Rank.Ten)).toBe("Play 10");
+    expect(playLabel(2, Rank.Nine)).toBe("Play 2 × 9");
   });
 });
 describe("requirementText", () => {

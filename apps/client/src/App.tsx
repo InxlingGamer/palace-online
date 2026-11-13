@@ -22,7 +22,7 @@ import { createActionSender, shouldAcceptSnapshot } from "./action-sender";
 import { Card, CardBack } from "./cards";
 import { DeckPicker } from "./DeckPicker";
 import { Hand } from "./hand";
-import { lastMoveText, requirementText } from "./table-copy";
+import { lastMoveText, playLabel, requirementText, statusText } from "./table-copy";
 import { canPickUpPile } from "./pickup";
 import { useSound } from "./audio";
 import { ResultOverlay, SevenRestrictionAlert } from "./feedback";
@@ -156,6 +156,41 @@ function isLegal(state: PublicGameState, rank: Rank): boolean {
   const top = state.playPile.at(-1);
   if (!top || top.rank === Rank.Two) return true;
   return rankValue.get(rank)! >= rankValue.get(top.rank)!;
+}
+
+/** The last card of the match, lifted into a spotlight before the result screen. */
+function FinalMoment({ cards, playerName }: { cards: CardType[]; playerName: string | null }) {
+  const many = cards.length > 1;
+  return (
+    <div
+      className={`final-moment final-moment--${playerName === null ? "you" : "opponent"}`}
+      data-final-play="true"
+      role="status"
+      aria-label={`${playerName ?? "Your"}${playerName ? "'s" : ""} final ${many ? "cards" : "card"}`}
+    >
+      <div className="final-moment__veil" aria-hidden="true" />
+      <div className="final-moment__stage">
+        <p className="final-moment__eyebrow">{many ? "Final cards" : "Final card"}</p>
+        <div
+          className="final-moment__cards"
+          style={{ "--final-count": cards.length } as CSSProperties}
+        >
+          {cards.map((card, index) => (
+            <div
+              key={card.id}
+              className="final-moment__card"
+              style={{ "--final-offset": index - (cards.length - 1) / 2 } as CSSProperties}
+            >
+              <Card card={card} />
+            </div>
+          ))}
+        </div>
+        <p className="final-moment__caption">
+          {playerName === null ? "You go out" : `${playerName} goes out`}
+        </p>
+      </div>
+    </div>
+  );
 }
 
 function Lobby({
@@ -646,11 +681,14 @@ export function App() {
     yourTurn &&
     state.you.hand.length > 0 &&
     !state.you.hand.some(({ rank }) => isLegal(state, rank));
-  const holdingFinalPlay =
-    state.phase === "finished" &&
-    state.resultReason === "finished" &&
-    state.lastPlay !== null &&
-    presentedResult !== state.gameId;
+  const finishedByPlay =
+    state.phase === "finished" && state.resultReason === "finished" && state.lastPlay !== null;
+  const holdingFinalPlay = finishedByPlay && presentedResult !== state.gameId;
+  // The spotlight stays behind the result screen as it fades in, so the two moments cross-fade.
+  // A result shown again (reload, rejoin) skips it.
+  const showFinalMoment =
+    finishedByPlay && (holdingFinalPlay || (presentedResult === state.gameId && animateResult));
+  const hiddenPhase = state.you.cardPhase === "hidden-field";
   const selectedRank = state.you.hand.find(({ id }) => id === selected[0])?.rank;
   const sortedHand = [...state.you.hand].sort(
     (left, right) => handRankValue.get(left.rank)! - handRankValue.get(right.rank)!,
@@ -789,9 +827,12 @@ export function App() {
             )}
           </div>
           <div className="opponent-hand" aria-label={`${opponent?.handCount ?? 0} opponent cards`}>
-            {Array.from({ length: Math.min(opponent?.handCount ?? 0, 12) }, (_, index) => (
+            {Array.from({ length: Math.min(opponent?.handCount ?? 0, 10) }, (_, index) => (
               <CardBack key={index} />
             ))}
+            {(opponent?.handCount ?? 0) > 10 && (
+              <span className="opponent-hand__more">+{opponent!.handCount - 10}</span>
+            )}
           </div>
           <FieldRow
             selectedField={state.opponentSelectedField}
@@ -801,7 +842,14 @@ export function App() {
         </div>
 
         <div className="table-center">
-          {lastMoveText(state) && <div className="last-move">{lastMoveText(state)}</div>}
+          {/* Always rendered so the pile never shifts when the first move appears. */}
+          <div className="last-move-slot">
+            {lastMoveText(state) && !showFinalMoment && (
+              <div className="last-move" key={`${state.revision}`}>
+                {lastMoveText(state)}
+              </div>
+            )}
+          </div>
           <div className="deck-stack">
             <CardBack
               label={
@@ -818,21 +866,7 @@ export function App() {
             <small>{drawBusy ? "Drawing…" : "Draw pile"}</small>
           </div>
           <div className={`play-stack ${state.burnedCount ? "play-stack--active" : ""}`}>
-            {holdingFinalPlay && state.lastPlay ? (
-              <div className="final-play" data-final-play="true" aria-label="Final play">
-                {state.lastPlay.cards.map((card, index, cards) => (
-                  <div
-                    key={card.id}
-                    style={{
-                      transform: `translateX(${(index - (cards.length - 1) / 2) * 10}px) rotate(${(index - (cards.length - 1) / 2) * 5}deg)`,
-                    }}
-                  >
-                    <Card card={card} />
-                  </div>
-                ))}
-                <small>{state.lastPlay.cards.length === 1 ? "Final card" : "Final cards"}</small>
-              </div>
-            ) : state.playPile.length ? (
+            {state.playPile.length ? (
               <div className="pile-fan">
                 {state.playPile.slice(-4).map((card, index, cards) => (
                   <div
@@ -850,7 +884,7 @@ export function App() {
                 <small>Play pile</small>
               </div>
             )}
-            {!holdingFinalPlay && state.playPile.length > 1 && (
+            {state.playPile.length > 1 && (
               <span className="count-badge">{state.playPile.length}</span>
             )}
           </div>
@@ -860,18 +894,15 @@ export function App() {
           </div>
         </div>
 
-        <div className="status-banner" aria-live="polite">
-          <span className={yourTurn ? "turn-dot turn-dot--yours" : "turn-dot"} />{" "}
-          <b>
-            {state.phase === "finished"
-              ? "Game over"
-              : yourTurn
-                ? "Your turn"
-                : opponent
-                  ? `${opponent.name}'s turn`
-                  : "Waiting"}
-          </b>
-          <span>{requirementText(state)}</span>
+        <div
+          className={`status-banner ${
+            state.phase === "playing" && (yourTurn || pendingSeven) ? "status-banner--yours" : ""
+          }`}
+          aria-live="polite"
+        >
+          <span className="turn-dot" aria-hidden="true" />
+          <b>{statusText(state)}</b>
+          {state.phase === "playing" && <span className="sr-only">{requirementText(state)}</span>}
         </div>
 
         <div className="player-zone">
@@ -920,10 +951,14 @@ export function App() {
       <SevenRestrictionAlert direction={sevenRestriction} />
       <FlightLayer flights={flights} />
 
-      <div className={`action-dock ${state.phase === "finished" ? "action-dock--hidden" : ""}`}>
+      <div
+        className={`action-dock ${state.phase === "playing" ? "action-dock--play" : ""} ${
+          state.phase === "finished" ? "action-dock--hidden" : ""
+        }`}
+      >
         {state.phase === "lobby" && (
           <>
-            <div>
+            <div className="dock-copy">
               <b>{opponent ? "Both seats claimed" : "Waiting for another player"}</b>
               <span>
                 {opponent
@@ -942,11 +977,9 @@ export function App() {
         )}
         {state.phase === "setup" && !state.you.setupComplete && (
           <>
-            <div>
+            <div className="dock-copy">
               <b>Choose 3 cards</b>
-              <span>
-                {selected.length}/3 cards selected · they turn face down after confirmation
-              </span>
+              <span>{selected.length}/3 selected · they turn face down once locked in</span>
             </div>
             <button
               className="button button--gold"
@@ -958,78 +991,66 @@ export function App() {
           </>
         )}
         {state.phase === "setup" && state.you.setupComplete && (
-          <div>
+          <div className="dock-copy dock-copy--center">
             <b>Selection saved</b>
             <span>Waiting for {opponent?.name ?? "the other player"}.</span>
           </div>
         )}
         {state.phase === "playing" && pendingSeven && (
-          <>
-            <div>
-              <b>Choose a direction</b>
-              <span>The other player must follow it.</span>
-            </div>
-            <div className="button-pair">
-              <button
-                className="button"
-                disabled={pending}
-                onClick={() => void act({ type: "CHOOSE_SEVEN_DIRECTION", direction: "lower" })}
-              >
-                ↓ Lower
-              </button>
-              <button
-                className="button button--gold"
-                disabled={pending}
-                onClick={() => void act({ type: "CHOOSE_SEVEN_DIRECTION", direction: "higher" })}
-              >
-                ↑ Higher
-              </button>
-            </div>
-          </>
+          <div className="button-pair">
+            <button
+              className="button"
+              disabled={pending}
+              onClick={() => void act({ type: "CHOOSE_SEVEN_DIRECTION", direction: "lower" })}
+            >
+              ↓ Lower
+            </button>
+            <button
+              className="button button--gold"
+              disabled={pending}
+              onClick={() => void act({ type: "CHOOSE_SEVEN_DIRECTION", direction: "higher" })}
+            >
+              ↑ Higher
+            </button>
+          </div>
         )}
-        {state.phase === "playing" && !pendingSeven && (
-          <>
-            <div>
-              <b>
-                {selected.length
-                  ? `${selected.length} × ${selectedRank}`
-                  : yourTurn
-                    ? noLegalCard
-                      ? "No legal card"
-                      : "Choose a card"
-                    : "Waiting"}
-              </b>
-              <span>
-                {yourTurn
-                  ? noLegalCard
-                    ? "Pick up the pile."
-                    : "Power cards are always legal."
-                  : `Waiting for ${opponent?.name ?? "the other player"}.`}
-              </span>
-            </div>
-            <div className="button-pair">
-              {canPickup && (
-                <button
-                  className="button button--danger"
-                  disabled={pending}
-                  onClick={() => void act({ type: "PICK_UP_PILE" })}
-                >
-                  Pick up pile
-                </button>
-              )}
+        {state.phase === "playing" && !pendingSeven && !yourTurn && (
+          <div className="dock-waiting" role="status">
+            <span aria-hidden="true" />
+            {state.pendingSevenChoiceFor
+              ? `${opponent?.name ?? "The other player"} is choosing higher or lower…`
+              : `Waiting for ${opponent?.name ?? "the other player"}…`}
+          </div>
+        )}
+        {state.phase === "playing" && !pendingSeven && yourTurn && (
+          <div className="button-pair">
+            {canPickup && (
               <button
-                className="button button--gold"
-                disabled={pending || !yourTurn || selected.length === 0}
-                onClick={() => void act({ type: "PLAY_CARDS", cardIds: selected })}
+                className={`button ${noLegalCard ? "button--gold" : "button--quiet"}`}
+                disabled={pending}
+                onClick={() => void act({ type: "PICK_UP_PILE" })}
               >
-                Play {selected.length || "cards"}
+                Pick up pile
               </button>
-            </div>
-          </>
+            )}
+            {hiddenPhase ? (
+              <span className="dock-hint">Flip a face-down card</span>
+            ) : (
+              !noLegalCard && (
+                <button
+                  className="button button--gold"
+                  disabled={pending || selected.length === 0}
+                  onClick={() => void act({ type: "PLAY_CARDS", cardIds: selected })}
+                >
+                  {playLabel(selected.length, selectedRank)}
+                </button>
+              )
+            )}
+          </div>
         )}
         {state.phase === "expired" && (
           <>
-            <div>
+            <div className="dock-copy">
               <b>{restarted ? "Table closed" : "Room expired"}</b>
               <span>
                 {restarted
@@ -1043,13 +1064,24 @@ export function App() {
           </>
         )}
       </div>
+      {showFinalMoment && state.lastPlay && (
+        <FinalMoment
+          cards={state.lastPlay.cards}
+          playerName={
+            state.lastPlay.playerId === state.you.id ? null : (opponent?.name ?? "Opponent")
+          }
+        />
+      )}
       {state.phase === "finished" && presentedResult === state.gameId && (
         <ResultOverlay
           winner={state.winnerId === state.you.id}
           forfeit={state.resultReason === "forfeit"}
+          opponentName={opponent?.name ?? "Opponent"}
           turnCount={state.stats.turnCount}
-          pickupCount={state.stats.pickups[state.you.id] ?? 0}
+          yourPickups={state.stats.pickups[state.you.id] ?? 0}
+          opponentPickups={opponent ? (state.stats.pickups[opponent.id] ?? 0) : 0}
           rematchRequested={state.you.ready}
+          opponentWantsRematch={opponent?.ready ?? false}
           pending={pending}
           animate={animateResult}
           onLobby={leaveToLobby}

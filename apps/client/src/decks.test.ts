@@ -25,7 +25,11 @@ describe("card preferences", () => {
       deck: "simple",
       back: "walnut",
     });
-    expect(parseCardPreference('{"deck":"classic","back":"felt"}')).toEqual(DEFAULT_CARD_STYLE);
+    expect(parseCardPreference('{"deck":"classic","back":"felt"}')).toEqual({
+      deck: "classic",
+      back: "red",
+    });
+    expect(parseCardPreference('{"deck":"original","back":"red"}')).toEqual(DEFAULT_CARD_STYLE);
     expect(parseCardPreference('{"deck":"simple"}')).toEqual({ deck: "simple", back: "walnut" });
     expect(parseCardPreference('{"deck":"simple","back":42}')).toEqual({
       deck: "simple",
@@ -62,13 +66,13 @@ describe("card preferences", () => {
   });
 });
 describe("card deck rendering", () => {
-  it("defaults standalone cards and backs to Classic / Red", () => {
+  it("defaults standalone cards and backs to the Original deck", () => {
     expect(
       renderToStaticMarkup(
         createElement(Card, { card: { id: "ace", rank: Rank.Ace, suit: Suit.Hearts } }),
       ),
-    ).toContain('data-deck="classic"');
-    expect(renderToStaticMarkup(createElement(CardBack))).toContain('data-back="red"');
+    ).toContain('data-deck="original"');
+    expect(renderToStaticMarkup(createElement(CardBack))).toContain('data-back="burgundy"');
   });
   it("renders all ranks and suits in both decks with their selected back", () => {
     for (const deck of DECKS)
