@@ -16,6 +16,7 @@ import { RoomStore, seededRandom } from "./room-store.js";
 const bootId = randomUUID();
 
 const COOKIE_NAME = "palace_session";
+const roomCookieName = (roomCode: string) => `${COOKIE_NAME}_${roomCode}`;
 
 export function createRuntime(config: ServerConfig, options: { clientDirectory?: string } = {}) {
   const clientDirectory =
@@ -81,6 +82,9 @@ export function createRuntime(config: ServerConfig, options: { clientDirectory?:
     path: "/",
   };
 
+  const authenticateCookies = (roomCode: string, cookies: Record<string, string | undefined>) =>
+    store.authenticate(roomCode, cookies[roomCookieName(roomCode)] ?? cookies[COOKIE_NAME]);
+
   const createLimiter = rateLimit({
     windowMs: 60_000,
     limit: config.ROOM_CREATE_LIMIT,
@@ -102,7 +106,7 @@ export function createRuntime(config: ServerConfig, options: { clientDirectory?:
       return;
     }
     const membership = store.create(parsed.data);
-    response.cookie(COOKIE_NAME, membership.token, cookieOptions);
+    response.cookie(roomCookieName(membership.roomCode), membership.token, cookieOptions);
     response.status(201).json({ roomCode: membership.roomCode, state: membership.state });
   });
 
@@ -115,7 +119,9 @@ export function createRuntime(config: ServerConfig, options: { clientDirectory?:
         .json({ error: { code: "INVALID_INPUT", message: "Check the room code and name." } });
       return;
     }
-    const membership = store.join(code.data, name.data);
+    const membership =
+      authenticateCookies(code.data, request.cookies as Record<string, string | undefined>) ??
+      store.join(code.data, name.data);
     if ("error" in membership) {
       const full = membership.error === "ROOM_FULL";
       response.status(full ? 409 : 404).json({
@@ -123,14 +129,14 @@ export function createRuntime(config: ServerConfig, options: { clientDirectory?:
       });
       return;
     }
-    response.cookie(COOKIE_NAME, membership.token, cookieOptions);
+    response.cookie(roomCookieName(membership.roomCode), membership.token, cookieOptions);
     response.json({ roomCode: membership.roomCode, state: membership.state });
   });
 
   app.post("/api/rooms/:roomCode/reconnect", (request, response) => {
     const code = roomCodeSchema.safeParse(request.params.roomCode);
     const membership = code.success
-      ? store.authenticate(code.data, request.cookies[COOKIE_NAME] as string)
+      ? authenticateCookies(code.data, request.cookies as Record<string, string | undefined>)
       : null;
     if (!membership) {
       response.status(401).json({
@@ -144,16 +150,13 @@ export function createRuntime(config: ServerConfig, options: { clientDirectory?:
   io.use((socket, next) => {
     try {
       const code = roomCodeSchema.safeParse(socket.handshake.auth.roomCode);
-      const token = parseCookie(socket.handshake.headers.cookie ?? "")[COOKIE_NAME];
-      if (
-        !code.success ||
-        !token ||
-        !store.authenticate(code.data, token) ||
-        !store.canConnect(code.data, token)
-      )
+      const membership = code.success
+        ? authenticateCookies(code.data, parseCookie(socket.handshake.headers.cookie ?? ""))
+        : null;
+      if (!membership || !store.canConnect(membership.roomCode, membership.token))
         return next(new Error("Invalid room session"));
-      socket.data.roomCode = code.data;
-      socket.data.token = token;
+      socket.data.roomCode = membership.roomCode;
+      socket.data.token = membership.token;
       next();
     } catch {
       next(new Error("Invalid room session"));
@@ -245,12 +248,24 @@ export function createRuntime(config: ServerConfig, options: { clientDirectory?:
 
   app.use(
     (
-      error: Error,
+      error: Error & { type?: string },
       _request: express.Request,
       response: express.Response,
       _next: express.NextFunction,
     ) => {
       void _next;
+      if (error.type === "entity.parse.failed") {
+        response.status(400).json({
+          error: { code: "INVALID_INPUT", message: "The request body must be valid JSON." },
+        });
+        return;
+      }
+      if (error.type === "entity.too.large") {
+        response.status(413).json({
+          error: { code: "INVALID_INPUT", message: "The request body is too large." },
+        });
+        return;
+      }
       if (config.NODE_ENV !== "test") console.error(error.message);
       response
         .status(500)

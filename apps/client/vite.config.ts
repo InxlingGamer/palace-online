@@ -1,10 +1,9 @@
-import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, transformWithEsbuild, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
-import { precacheList } from "./precache";
+import { buildIdentity, precacheList } from "./precache";
 
 const buildPlaceholder = "PALACE_BUILD_TAG_";
 async function publicFiles(directory: string, prefix = ""): Promise<string[]> {
@@ -27,19 +26,28 @@ function appShell(): Plugin {
     enforce: "post",
     async generateBundle(_options, bundle) {
       const files = Object.keys(bundle).sort();
-      const buildId = createHash("sha256").update(files.join("\n")).digest("hex").slice(0, 16);
+      const publicDirectory = fileURLToPath(new URL("./public", import.meta.url));
+      const urls = precacheList(files, await publicFiles(publicDirectory));
+      const publicContents = Object.fromEntries(
+        await Promise.all(
+          urls
+            .filter((url) => url !== "/" && !files.includes(url.slice(1)))
+            .map(
+              async (url) =>
+                [url.slice(1), await readFile(path.join(publicDirectory, url.slice(1)))] as const,
+            ),
+        ),
+      );
+      const buildId = buildIdentity(files, publicContents);
       // Patch after naming chunks to avoid a circular build-id/content-hash dependency.
       for (const output of Object.values(bundle)) {
         if (output.type === "chunk")
           output.code = output.code.replaceAll(buildPlaceholder, buildId);
       }
       const source = await readFile(new URL("./src/sw/service-worker.ts", import.meta.url), "utf8");
-      const urls = precacheList(
-        files,
-        await publicFiles(fileURLToPath(new URL("./public", import.meta.url))),
-      );
       const compiled = await transformWithEsbuild(source, "service-worker.ts", {
         target: "es2022",
+        format: "iife",
         minify: true,
         define: { __PRECACHE__: JSON.stringify(urls), __BUILD_ID__: JSON.stringify(buildId) },
       });

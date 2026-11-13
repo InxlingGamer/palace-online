@@ -9,6 +9,46 @@ afterEach(() => {
 });
 
 describe("waking requests", () => {
+  it.each([
+    "dropped connection",
+    "malformed JSON",
+    "HTML success",
+    "gateway 502",
+    "gateway 503",
+    "gateway 504",
+    "app 503",
+  ])("never retries create after %s", async (failure) => {
+    const fetcher = vi.fn();
+    if (failure === "dropped connection")
+      fetcher.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    else if (failure === "malformed JSON")
+      fetcher.mockResolvedValueOnce(
+        new Response("{bad", { headers: { "Content-Type": "application/json" } }),
+      );
+    else if (failure === "HTML success")
+      fetcher.mockResolvedValueOnce(new Response("<html>OK</html>"));
+    else
+      fetcher.mockResolvedValueOnce(
+        new Response("Unavailable", {
+          status: Number(failure.slice(-3)),
+          headers: failure === "app 503" ? { "X-Palace-App": "1" } : {},
+        }),
+      );
+    fetcher.mockResolvedValue(json({ ok: true }));
+    vi.stubGlobal("fetch", fetcher);
+    await expect(api("/api/rooms", { method: "POST" })).rejects.toThrow(
+      "Unable to confirm the new room.",
+    );
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("accepts a successful create without retrying", async () => {
+    const fetcher = vi.fn().mockResolvedValue(json({ roomCode: "ABC234" }));
+    vi.stubGlobal("fetch", fetcher);
+    expect(await api("/api/rooms", { method: "POST" })).toEqual({ roomCode: "ABC234" });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it.each([200, 502, 503, 504])("retries HTML/status %s and recovers", async (status) => {
     vi.useFakeTimers();
     const fetcher = vi
@@ -17,7 +57,7 @@ describe("waking requests", () => {
       .mockResolvedValueOnce(json({ ok: true }));
     vi.stubGlobal("fetch", fetcher);
     const waking = vi.fn();
-    const result = api("/api/rooms", { method: "POST" }, waking);
+    const result = api("/api/rooms/ABC234/join", { method: "POST" }, waking);
     await vi.advanceTimersByTimeAsync(500);
     expect(await result).toEqual({ ok: true });
     expect(fetcher).toHaveBeenCalledTimes(2);
@@ -29,7 +69,7 @@ describe("waking requests", () => {
     const fetcher = vi.fn(() => Promise.resolve(new Response("<html>Waking</html>")));
     vi.stubGlobal("fetch", fetcher);
     const waking = vi.fn();
-    const result = api("/api/rooms", { method: "POST" }, waking);
+    const result = api("/api/rooms/ABC234/join", { method: "POST" }, waking);
     const rejected = expect(result).rejects.toThrow(
       "The server is still waking up. Try again in a moment.",
     );
@@ -49,7 +89,7 @@ describe("waking requests", () => {
       .mockResolvedValueOnce(json({ error: { message: "Bad gateway" } }, 502))
       .mockResolvedValueOnce(json({ ok: true }));
     vi.stubGlobal("fetch", fetcher);
-    const result = api("/api/rooms", { method: "POST" });
+    const result = api("/api/rooms/ABC234/join", { method: "POST" });
     await vi.advanceTimersByTimeAsync(500);
     expect(await result).toEqual({ ok: true });
   });
@@ -66,7 +106,7 @@ describe("waking requests", () => {
           }),
       ),
     );
-    const result = api("/api/rooms", { method: "POST" });
+    const result = api("/api/rooms/ABC234/join", { method: "POST" });
     const rejected = expect(result).rejects.toBeInstanceOf(ServerWakingError);
     await vi.advanceTimersByTimeAsync(90_000);
     await rejected;
@@ -77,7 +117,9 @@ describe("waking requests", () => {
       .fn()
       .mockResolvedValue(json({ error: { message: "Enter a display name." } }, 400));
     vi.stubGlobal("fetch", fetcher);
-    await expect(api("/api/rooms", { method: "POST" })).rejects.toThrow("Enter a display name.");
+    await expect(api("/api/rooms/ABC234/join", { method: "POST" })).rejects.toThrow(
+      "Enter a display name.",
+    );
     expect(fetcher).toHaveBeenCalledOnce();
   });
   it("handles malformed JSON without exposing a parse error", async () => {
@@ -91,7 +133,7 @@ describe("waking requests", () => {
         )
         .mockResolvedValueOnce(json({ ok: true })),
     );
-    const result = api("/api/rooms", { method: "POST" });
+    const result = api("/api/rooms/ABC234/join", { method: "POST" });
     await vi.advanceTimersByTimeAsync(500);
     expect(await result).toEqual({ ok: true });
   });
@@ -102,7 +144,7 @@ describe("waking requests", () => {
       .mockRejectedValueOnce(new TypeError("Failed to fetch"))
       .mockResolvedValueOnce(json({ ok: true }));
     vi.stubGlobal("fetch", fetcher);
-    const result = api("/api/rooms", { method: "POST" });
+    const result = api("/api/rooms/ABC234/join", { method: "POST" });
     await vi.advanceTimersByTimeAsync(500);
     expect(await result).toEqual({ ok: true });
     expect(fetcher).toHaveBeenCalledTimes(2);
@@ -110,7 +152,7 @@ describe("waking requests", () => {
   it("sanitizes transport errors that last until the deadline", async () => {
     vi.useFakeTimers();
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
-    const result = api("/api/rooms", { method: "POST" });
+    const result = api("/api/rooms/ABC234/join", { method: "POST" });
     const rejected = expect(result).rejects.toBeInstanceOf(ServerWakingError);
     await vi.advanceTimersByTimeAsync(90_000);
     await rejected;
@@ -123,7 +165,9 @@ describe("waking requests", () => {
         new Response("Too many requests, please try again later.", { status: 429 }),
       );
     vi.stubGlobal("fetch", fetcher);
-    await expect(api("/api/rooms", { method: "POST" })).rejects.toThrow("Too many requests.");
+    await expect(api("/api/rooms/ABC234/join", { method: "POST" })).rejects.toThrow(
+      "Too many requests.",
+    );
     expect(fetcher).toHaveBeenCalledOnce();
   });
   it("falls back when health is unavailable or lacks an identity", async () => {

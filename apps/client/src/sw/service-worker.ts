@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-// This file is compiled independently by Vite, with no runtime imports.
+// This file is compiled independently to a classic-worker IIFE by Vite, with no runtime imports.
 declare const __PRECACHE__: string[];
 declare const __BUILD_ID__: string;
 const worker = globalThis as unknown as ServiceWorkerGlobalScope;
@@ -16,6 +16,8 @@ worker.addEventListener("install", (event) => {
         [...precache].map(async (url) => {
           const response = await fetch(url === "/" ? "/index.html" : url, { cache: "reload" });
           if (!trusted(response)) throw new Error(`Untrusted precache response: ${url}`);
+          // Install must fail if the shell cannot be cached, so the previous worker and its
+          // complete cache keep serving. Only runtime cache writes are best-effort.
           await cache.put(url, response);
         }),
       );
@@ -37,7 +39,7 @@ worker.addEventListener("activate", (event) => {
   );
 });
 
-async function navigate(request: Request): Promise<Response> {
+export async function navigate(request: Request): Promise<Response> {
   const cache = await caches.open(cacheName);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 3000);
@@ -50,7 +52,7 @@ async function navigate(request: Request): Promise<Response> {
       headers.delete("Content-Encoding");
       headers.delete("Content-Length");
       const shell = new Response(body, { status: response.status, headers });
-      await cache.put("/", shell.clone());
+      await cache.put("/", shell.clone()).catch(() => {});
       return shell;
     }
   } catch {
@@ -61,7 +63,7 @@ async function navigate(request: Request): Promise<Response> {
   return (await cache.match("/")) ?? Response.error();
 }
 
-async function staticGet(request: Request, cacheFirst: boolean): Promise<Response> {
+export async function staticGet(request: Request, cacheFirst: boolean): Promise<Response> {
   const cache = await caches.open(cacheName);
   if (cacheFirst) {
     const cached = await cache.match(request);
@@ -69,7 +71,7 @@ async function staticGet(request: Request, cacheFirst: boolean): Promise<Respons
   }
   try {
     const response = await fetch(request);
-    if (trusted(response)) await cache.put(request, response.clone());
+    if (trusted(response)) await cache.put(request, response.clone()).catch(() => {});
     return response;
   } catch {
     return (await cache.match(request)) ?? Response.error();

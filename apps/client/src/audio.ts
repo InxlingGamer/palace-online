@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
+import { loadSaved, saveSaved } from "./storage";
 
 export type SoundName =
   | "shuffle"
@@ -18,7 +19,7 @@ export type SoundName =
   | "lose";
 
 export function useSound() {
-  const [muted, setMutedState] = useState(() => localStorage.getItem("palace-muted") === "true");
+  const [muted, setMutedState] = useState(() => loadSaved("palace-muted") === "true");
   const context = useRef<AudioContext | null>(null);
 
   const unlock = useCallback(() => {
@@ -181,7 +182,7 @@ export function useSound() {
 
   const setMuted = useCallback((value: boolean) => {
     setMutedState(value);
-    localStorage.setItem("palace-muted", String(value));
+    saveSaved("palace-muted", String(value));
   }, []);
 
   return useMemo(() => ({ muted, setMuted, unlock, play }), [muted, play, setMuted, unlock]);
