@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from "@playwright/test";
+import type { PublicGameState } from "../../packages/shared/src/index";
 
 test("Home Screen metadata and full-size icons are available", async ({ page, request }) => {
   await page.goto("/");
@@ -150,6 +151,163 @@ async function createPlayer(context: BrowserContext, name: string): Promise<Page
   await expect(page.getByRole("button", { name: /Copy invitation/ })).toBeVisible();
   return page;
 }
+
+async function membership(page: Page): Promise<PublicGameState> {
+  const code = new URL(page.url()).pathname.split("/").at(-1)!;
+  const response = await page.request.post(`/api/rooms/${code}/reconnect`);
+  expect(response.ok()).toBe(true);
+  return ((await response.json()) as { state: PublicGameState }).state;
+}
+
+test("leaving a reloaded invite clears the code and Return preserves the same seat", async ({
+  context,
+}) => {
+  // Match the existing reload regressions; the history/focus cases run on every device.
+  test.skip(Boolean(test.info().project.use.isMobile), "reload crashes mobile WebKit on Linux CI");
+  const page = await createPlayer(context, "Ada");
+  const original = await membership(page);
+  const roomURL = page.url();
+  await page.reload();
+  await expect(page.locator(".connection--connected")).toBeVisible();
+  await page.getByRole("button", { name: "Palace, back to home" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("link", { name: /Return to table/ })).toBeVisible();
+  await expect(page.getByLabel("Room code")).toHaveValue("");
+  await page.getByRole("link", { name: /Return to table/ }).click();
+  await expect(page).toHaveURL(roomURL);
+  await expect(page.locator(".connection--connected")).toBeVisible();
+  const returned = await membership(page);
+  expect(returned.you.id).toBe(original.you.id);
+  expect(returned.opponent).toBeNull();
+});
+
+test("Back shows the lobby and Forward reconnects the same table without adding history", async ({
+  context,
+}) => {
+  const page = await createPlayer(context, "Ada");
+  const original = await membership(page);
+  const roomURL = page.url();
+  const historyLength = await page.evaluate(() => history.length);
+  for (let traversal = 0; traversal < 2; traversal++) {
+    await page.goBack();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByRole("link", { name: /Return to table/ })).toBeVisible();
+    await expect(page.getByLabel("Room code")).toHaveValue("");
+    await expect(page.locator(".game-shell")).toHaveCount(0);
+    await page.goForward();
+    await expect(page).toHaveURL(roomURL);
+    await expect(page.locator(".connection--connected")).toBeVisible();
+    expect((await membership(page)).you.id).toBe(original.you.id);
+    expect(await page.evaluate(() => history.length)).toBe(historyLength);
+  }
+});
+
+async function expectDialogFocus(page: Page, role: "dialog" | "alertdialog") {
+  const dialog = page.getByRole(role);
+  const buttons = dialog.getByRole("button");
+  await expect(buttons.first()).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(buttons.last()).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(buttons.first()).toBeFocused();
+  for (const key of ["Tab", "Tab", "Tab", "Shift+Tab", "Shift+Tab", "Shift+Tab"]) {
+    await page.keyboard.press(key);
+    expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+  }
+  expect(
+    await dialog.evaluate((element) =>
+      [...element.closest(".game-shell")!.children]
+        .filter((child) => !child.contains(element))
+        .every((child) => (child as HTMLElement).inert),
+    ),
+  ).toBe(true);
+  await page.locator(".mini-brand").evaluate((element: HTMLElement) => element.focus());
+  expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true);
+}
+
+test("leave and result dialogs trap focus and make table controls inert", async ({
+  page,
+  browser,
+}) => {
+  const { viewport, isMobile, hasTouch, deviceScaleFactor, userAgent } = test.info().project.use;
+  const otherContext = await browser.newContext({
+    ...(viewport !== undefined ? { viewport } : {}),
+    ...(isMobile !== undefined ? { isMobile } : {}),
+    ...(hasTouch !== undefined ? { hasTouch } : {}),
+    ...(deviceScaleFactor !== undefined ? { deviceScaleFactor } : {}),
+    ...(userAgent !== undefined ? { userAgent } : {}),
+  });
+  // Only the final result snapshot is simulated; joining, setup, navigation, and focus use the real UI.
+  const transport = new Map<string, (snapshot: PublicGameState) => void>();
+  await page.routeWebSocket("**/socket.io/**", (socket) => {
+    socket.connectToServer();
+    transport.set("current", (snapshot) =>
+      socket.send("42" + JSON.stringify(["state:snapshot", snapshot])),
+    );
+  });
+  try {
+    await page.goto("/");
+    await page.getByLabel("Display name").fill("Ada");
+    await page.getByRole("button", { name: "Create room" }).click();
+    await expect(page.locator(".connection--connected")).toBeVisible();
+    const other = await otherContext.newPage();
+    await other.goto(page.url());
+    await other.getByLabel("Display name").fill("Ben");
+    await other.getByRole("button", { name: "Join room" }).click();
+    await expect(page.getByText("Ben", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "I'm ready" }).click();
+    await other.getByRole("button", { name: "I'm ready" }).click();
+    await expect(page.getByText("Choose 3 cards", { exact: true })).toBeVisible();
+    // Back during setup records Return and skips the explicit-leave confirmation.
+    await page.goBack();
+    await expect(page.getByRole("link", { name: /Return to table/ })).toBeVisible();
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    transport.delete("current");
+    const upgraded = socketUpgraded(page);
+    await page.goForward();
+    await upgraded;
+    await expect(page.getByText("Choose 3 cards", { exact: true })).toBeVisible();
+    const home = page.getByRole("button", { name: "Palace, back to home" });
+    await home.focus();
+    await home.click();
+    await expectDialogFocus(page, "alertdialog");
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("alertdialog")).toHaveCount(0);
+    await expect(home).toBeFocused();
+    expect(
+      await page.locator(".game-header").evaluate((element: HTMLElement) => element.inert),
+    ).toBe(false);
+    const snapshot = await membership(page);
+    const finished: PublicGameState = {
+      ...snapshot,
+      revision: snapshot.revision + 1,
+      phase: "finished",
+      gameId: snapshot.gameId ?? "focus-result",
+      resultReason: "forfeit",
+      winnerId: snapshot.you.id,
+      lastPlay: null,
+      you: { ...snapshot.you, ready: false },
+      opponent: snapshot.opponent ? { ...snapshot.opponent, ready: false } : null,
+    };
+    expect(transport.has("current")).toBe(true);
+    transport.get("current")!(finished);
+    await expectDialogFocus(page, "dialog");
+    transport.get("current")!({
+      ...finished,
+      revision: finished.revision + 1,
+      you: { ...finished.you, ready: true },
+    });
+    await expect(page.getByRole("button", { name: "Rematch requested" })).toBeDisabled();
+    for (const key of ["Tab", "Shift+Tab"]) {
+      await page.keyboard.press(key);
+      await expect(page.getByRole("button", { name: "Lobby", exact: true })).toBeFocused();
+    }
+    await page.getByRole("button", { name: "Lobby", exact: true }).click();
+    await expect(page.getByLabel("Display name")).toBeVisible();
+  } finally {
+    await otherContext.close();
+  }
+});
 
 test("two isolated players can join, ready, set up, synchronize, and reconnect", async ({
   browser,
@@ -432,21 +590,82 @@ for (const changedBoot of [true, false]) {
   });
 }
 
-test("lobby retries a waking HTML response then enters the room", async ({ page }) => {
+test("lobby join retries a waking HTML response then enters the room", async ({
+  page,
+  browser,
+}) => {
+  const hostContext = await browser.newContext();
+  try {
+    const host = await createPlayer(hostContext, "Host");
+    const roomPath = new URL(host.url()).pathname;
+    let release = false;
+    await page.route("**/api/rooms/*/join", async (route) => {
+      if (release) await route.continue();
+      else
+        await route.fulfill({ status: 503, contentType: "text/html", body: "<html>Waking</html>" });
+    });
+    await page.goto(roomPath);
+    await page.getByLabel("Display name").fill("Ada");
+    await page.getByRole("button", { name: "Join room" }).click();
+    await expect(page.getByRole("button", { name: "Waking the table\u2026" })).toBeDisabled({
+      timeout: 6500,
+    });
+    release = true;
+    await expect(page.getByRole("button", { name: /Copy invitation/ })).toBeVisible();
+  } finally {
+    await hostContext.close();
+  }
+});
+
+test("lobby create waits for a waking server, then creates exactly one room", async ({ page }) => {
+  // Load the lobby normally, then put the server to sleep.
+  await page.goto("/");
+  await page.getByLabel("Display name").fill("Ada");
   let release = false;
-  await page.route("**/api/rooms", async (route) => {
+  let creates = 0;
+  await page.route("**/healthz", async (route) => {
     if (release) await route.continue();
     else
       await route.fulfill({ status: 503, contentType: "text/html", body: "<html>Waking</html>" });
   });
+  await page.route("**/api/rooms", async (route) => {
+    if (route.request().method() === "POST") creates += 1;
+    await route.continue();
+  });
+  await page.getByRole("button", { name: "Create room" }).click();
+  await expect(page.getByRole("button", { name: "Waking the table…" })).toBeDisabled({
+    timeout: 6500,
+  });
+  expect(creates).toBe(0);
+  release = true;
+  await expect(page.getByRole("button", { name: /Copy invitation/ })).toBeVisible();
+  expect(creates).toBe(1);
+});
+
+test("Back during a pending create keeps the restored table", async ({ page }) => {
   await page.goto("/");
   await page.getByLabel("Display name").fill("Ada");
   await page.getByRole("button", { name: "Create room" }).click();
-  await expect(page.getByRole("button", { name: "Waking the table\u2026" })).toBeDisabled({
-    timeout: 6500,
+  const invitation = page.getByRole("button", { name: /Copy invitation/ });
+  await expect(invitation).toBeVisible();
+  const firstRoom = new URL(page.url()).pathname;
+  await page.getByRole("button", { name: /Palace, back to home/ }).click();
+  await expect(page.getByRole("link", { name: /Return to table/ })).toBeVisible();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/api/rooms", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    await held;
+    await route.continue();
   });
-  release = true;
-  await expect(page.getByRole("button", { name: /Copy invitation/ })).toBeVisible();
+  await page.getByRole("button", { name: "Create room" }).click();
+  await page.goBack();
+  await expect(invitation).toBeVisible();
+  expect(new URL(page.url()).pathname).toBe(firstRoom);
+  release();
+  await page.waitForTimeout(1500);
+  expect(new URL(page.url()).pathname).toBe(firstRoom);
+  await expect(page.locator(".connection--connected")).toBeVisible();
 });
 
 for (const changedBoot of [true, false]) {

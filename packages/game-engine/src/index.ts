@@ -135,6 +135,7 @@ export function removeLobbyPlayer(state: GameState, playerId: string): EngineRes
   next.players = next.players.filter(({ id }) => id !== playerId);
   if (next.players.length === previousLength)
     return fail("NOT_A_MEMBER", "Player is not in this room.");
+  delete next.stats.pickups[playerId];
   next.revision += 1;
   next.message = "Waiting for another player.";
   return { ok: true, state: next };

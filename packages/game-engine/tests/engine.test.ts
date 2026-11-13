@@ -76,6 +76,24 @@ const accepted = (result: ReturnType<typeof applyCommand>): GameState => {
 };
 
 describe("deck and dealing", () => {
+  it("keeps pickup keys equal to current player ids through lobby join and leave cycles", () => {
+    let state = accepted(addPlayer(createLobby("ABC234"), { id: "A", name: "Ada" }));
+    for (let cycle = 0; cycle < 5; cycle += 1) {
+      const id = `guest-${cycle}`;
+      state = accepted(addPlayer(state, { id, name: "Guest" }));
+      expect(Object.keys(state.stats.pickups).sort()).toEqual(
+        state.players.map(({ id }) => id).sort(),
+      );
+      const beforeLeave = state;
+      state = accepted(applyCommand(state, id, { type: "LEAVE_ROOM" }));
+      expect(Object.keys(state.stats.pickups).sort()).toEqual(
+        state.players.map(({ id }) => id).sort(),
+      );
+      expect(state.stats.pickups).toEqual({ A: 0 });
+      expect(beforeLeave.stats.pickups).toHaveProperty(id, 0);
+    }
+  });
+
   it("creates 52 unique standard cards", () => {
     const deck = createDeck();
     expect(deck).toHaveLength(52);

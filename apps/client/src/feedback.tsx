@@ -1,4 +1,5 @@
-import { useEffect, useRef, type CSSProperties } from "react";
+import type { CSSProperties } from "react";
+import { useDialogFocus } from "./dialog-focus";
 import type { SevenDirection } from "@palace/shared";
 import "./result.css";
 
@@ -56,12 +57,13 @@ export function ResultOverlay({
   onLobby,
   onRematch,
 }: ResultOverlayProps) {
-  const lobbyButton = useRef<HTMLButtonElement>(null);
-  useEffect(() => lobbyButton.current?.focus(), []);
+  const dialog = useDialogFocus();
   const word = winner ? "WINNER" : "LOSER";
 
   return (
     <section
+      ref={dialog}
+      tabIndex={-1}
       className={`result-overlay result-overlay--${winner ? "winner" : "loser"} ${
         animate ? "result-overlay--animate" : "result-overlay--static"
       }`}
@@ -176,7 +178,7 @@ export function ResultOverlay({
           </p>
         )}
         <div className="result-actions">
-          <button ref={lobbyButton} className="button result-lobby" onClick={onLobby} type="button">
+          <button className="button result-lobby" onClick={onLobby} type="button">
             <svg
               aria-hidden="true"
               viewBox="0 0 20 20"

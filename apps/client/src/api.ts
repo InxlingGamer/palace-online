@@ -17,6 +17,10 @@ export async function api<T>(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 90_000);
   const waking = setTimeout(onWaking, WAKING_DELAY_MS + 1);
+  // A lost create response may already have allocated a seat. Only an explicit new
+  // submission may create again; joins are idempotent for the room's seat cookie.
+  const creating = init.method?.toUpperCase() === "POST" && url === "/api/rooms";
+  const createFailure = () => new Error("Unable to confirm the new room. Try again.");
   let backoff = 500;
   try {
     while (Date.now() < deadline) {
@@ -29,6 +33,7 @@ export async function api<T>(
           signal: controller.signal,
         });
       } catch {
+        if (creating) throw createFailure();
         // A dropped connection while Render swaps processes retries; the deadline abort ends it.
         if (controller.signal.aborted) throw new ServerWakingError();
       }
@@ -52,6 +57,7 @@ export async function api<T>(
         if (!response.ok) throw new Error(body?.error?.message ?? "Request failed.");
         return body;
       }
+      if (creating) throw createFailure();
       const remaining = deadline - Date.now();
       if (remaining <= 0) break;
       await new Promise((resolve) => setTimeout(resolve, Math.min(backoff, remaining)));

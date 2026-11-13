@@ -298,6 +298,12 @@ export class RoomStore {
       enteredPlaying && this.testScenario
         ? applyTestScenario(applied.state, this.testScenario)
         : applied.state;
+    if (enteredPlaying && record.state.phase === "playing") {
+      for (const [absentToken, absent] of record.sessions) {
+        if (absent.socketIds.size === 0 && !absent.disconnectTimer)
+          this.scheduleForfeit(roomCode, absentToken, absent);
+      }
+    }
     record.lastActivityAt = now;
     const result: ActionResult = {
       actionId: envelope.actionId,

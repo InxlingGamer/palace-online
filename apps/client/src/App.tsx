@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -33,14 +32,18 @@ import { api, currentBootId, rememberBootId, storedBootId, ServerWakingError } f
 import { serverRestarted, wakingBanner, WAKING_DELAY_MS } from "./server-wake";
 
 import {
+  clearSaved,
   forgetRoom,
   loadSaved,
+  saveSaved,
   markPresented,
   rememberRoom,
   savedName,
   savedRoom,
 } from "./storage";
 import { rejoinNotice } from "./rejoin";
+import { useDialogFocus } from "./dialog-focus";
+import { reconcileSelection } from "./selection";
 
 const rankValue = new Map<Rank, number>(NORMAL_RANKS.map((rank, index) => [rank, index]));
 const handRanks = [Rank.Two, ...NORMAL_RANKS] as const;
@@ -158,6 +161,60 @@ function isLegal(state: PublicGameState, rank: Rank): boolean {
   return rankValue.get(rank)! >= rankValue.get(top.rank)!;
 }
 
+const LEFT_TABLE_KEY = "palace-left-table";
+
+function LeaveDialog({
+  playing,
+  opponentName,
+  onStay,
+  onLeave,
+}: {
+  playing: boolean;
+  opponentName: string | null;
+  onStay: () => void;
+  onLeave: () => void;
+}) {
+  const dialog = useDialogFocus(".mini-brand");
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onStay();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onStay]);
+  return (
+    <div className="leave-dialog" onClick={onStay}>
+      <section
+        ref={dialog}
+        tabIndex={-1}
+        className="leave-panel"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="leave-title"
+        aria-describedby="leave-copy"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2 id="leave-title">Leave this game?</h2>
+        <p id="leave-copy">
+          {playing
+            ? `You can return from the home screen. If you're away for 10 minutes, ${
+                opponentName ?? "the other player"
+              } wins by forfeit.`
+            : "Your seat is saved. You can return from the home screen."}
+        </p>
+        <div className="leave-actions">
+          <button type="button" className="button" onClick={onStay}>
+            Stay
+          </button>
+          <button type="button" className="button button--gold" onClick={onLeave}>
+            Leave table
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 /** The last card of the match, lifted into a spotlight before the result screen. */
 function FinalMoment({ cards, playerName }: { cards: CardType[]; playerName: string | null }) {
   const many = cards.length > 1;
@@ -197,10 +254,12 @@ function Lobby({
   initialCode,
   onEnter,
   notice,
+  returnCode,
 }: {
   initialCode: string;
   notice: string;
   onEnter: (state: PublicGameState) => void;
+  returnCode: string | null;
 }) {
   const [name, setName] = useState(savedName);
   const [code, setCode] = useState(initialCode);
@@ -208,25 +267,41 @@ function Lobby({
   const [busy, setBusy] = useState(false);
   const [waking, setWaking] = useState(false);
 
+  // Back/Forward can unmount the lobby mid-request; a late answer must not pull you into a room.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
   const submit = async (mode: "create" | "join", event: FormEvent) => {
     event.preventDefault();
     setError("");
     setBusy(true);
     setWaking(false);
     try {
+      // Create is sent once (a lost response may already have made the room), so wake a
+      // sleeping server first with the retry-safe health check.
+      if (mode === "create") await api("/healthz", { method: "GET" }, () => setWaking(true));
+      if (!mounted.current) return;
       const result = await api<{ roomCode: string; state: PublicGameState }>(
         mode === "create" ? "/api/rooms" : `/api/rooms/${code.toUpperCase()}/join`,
         { method: "POST", body: JSON.stringify({ name }) },
         () => setWaking(true),
       );
+      if (!mounted.current) return;
       rememberRoom(result.roomCode, name.trim());
       await rememberBootId(result.roomCode);
+      if (!mounted.current) return;
       window.history.pushState({}, "", `/room/${result.roomCode}`);
       onEnter(result.state);
     } catch (reason) {
+      if (!mounted.current) return;
       setError(reason instanceof Error ? reason.message : "Unable to enter the room.");
     } finally {
-      setBusy(false);
+      if (mounted.current) setBusy(false);
     }
   };
 
@@ -241,6 +316,17 @@ function Lobby({
         </h1>
       </section>
       <section className="lobby-panel" aria-labelledby="lobby-title">
+        {returnCode && (
+          <a className="return-table" href={`/room/${returnCode}`}>
+            <span>
+              <b>Return to table</b>
+              <small>Room {returnCode}</small>
+            </span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m9.5 6 6 6-6 6" />
+            </svg>
+          </a>
+        )}
         <h2 id="lobby-title">Create or join a room</h2>
         <form
           className="lobby-form"
@@ -309,19 +395,13 @@ function Lobby({
 }
 
 export function App() {
-  const pathRoom = useMemo(roomFromPath, []);
-  const initialRoom = useMemo(
-    () => pathRoom ?? (window.location.pathname === "/" ? savedRoom() : null),
-    [pathRoom],
-  );
-  // Decided once at mount: a failed restore below forgets the saved room.
-  const ownRoom = useMemo(
-    () =>
-      initialRoom !== null && (savedRoom() === initialRoom || storedBootId(initialRoom) !== null),
-    [initialRoom],
-  );
+  const [pathRoom, setPathRoom] = useState(roomFromPath);
+  const [restoreTarget, setRestoreTarget] = useState(() => {
+    const room = pathRoom ?? (window.location.pathname === "/" ? savedRoom() : null);
+    return room ? { room, replaceURL: true } : null;
+  });
   const [state, setState] = useState<PublicGameState | null>(null);
-  const [loadingRoom, setLoadingRoom] = useState(Boolean(initialRoom));
+  const [loadingRoom, setLoadingRoom] = useState(Boolean(restoreTarget));
   const [loadingWaking, setLoadingWaking] = useState(false);
   const [restarted, setRestarted] = useState(false);
   const [online, setOnline] = useState(navigator.onLine);
@@ -329,6 +409,7 @@ export function App() {
   const [now, setNow] = useState(Date.now);
   const [selected, setSelected] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [pending, setPending] = useState(false);
   const [drawBusy, setDrawBusy] = useState(false);
   const [noticeTone, setNoticeTone] = useState<"info" | "error">("error");
@@ -382,29 +463,33 @@ export function App() {
       void currentBootId().then((bootId) => {
         if (socketRef.current !== socket) return;
         setRestarted(serverRestarted(stored, bootId));
-        setState(
-          (current) =>
-            current && {
-              ...current,
-              phase: "expired",
-              message: "This table is no longer available.",
-            },
-        );
+        const current = snapshotRef.current;
+        if (current) {
+          const expired = {
+            ...current,
+            phase: "expired" as const,
+            message: "This table is no longer available.",
+          };
+          snapshotRef.current = expired;
+          setState(expired);
+        }
       });
     });
     socket.io.on("reconnect_failed", () => setConnection("offline"));
     socket.on("state:snapshot", (snapshot: PublicGameState) => {
+      if (socketRef.current !== socket) return;
       if (!shouldAcceptSnapshot(snapshotRef.current, snapshot)) return;
+      const previous = snapshotRef.current;
       snapshotRef.current = snapshot;
       setState(snapshot);
-      setSelected((current) =>
-        current.filter((id) => snapshot.you.hand.some((card) => card.id === id)),
-      );
+      setSelected((current) => reconcileSelection(current, previous, snapshot));
     });
   }, []);
 
   useEffect(() => {
-    if (!initialRoom) return;
+    if (!restoreTarget) return;
+    const { room: initialRoom, replaceURL } = restoreTarget;
+    const ownRoom = savedRoom() === initialRoom || storedBootId(initialRoom) !== null;
     let active = true;
     void api<{ state: PublicGameState }>(
       `/api/rooms/${initialRoom}/reconnect`,
@@ -417,18 +502,23 @@ export function App() {
         await rememberBootId(initialRoom);
         if (!active) return;
         rememberRoom(initialRoom);
-        window.history.replaceState({}, "", `/room/${initialRoom}`);
+        clearSaved(LEFT_TABLE_KEY);
+        if (replaceURL) window.history.replaceState({}, "", `/room/${initialRoom}`);
+        setPathRoom(initialRoom);
+        setSelected([]);
         snapshotRef.current = restored;
         setState(restored);
         connect(initialRoom);
       })
       .catch(async (reason: unknown) => {
+        if (!active) return;
         if (reason instanceof ServerWakingError) {
           if (active) setNotice(reason.message);
           return;
         }
         // An invite link to a table we never sat at keeps our saved table and needs no notice.
         if (savedRoom() === initialRoom) forgetRoom();
+        if (loadSaved(LEFT_TABLE_KEY) === initialRoom) clearSaved(LEFT_TABLE_KEY);
         if (!ownRoom) return;
         const stored = storedBootId(initialRoom);
         const current = await currentBootId();
@@ -440,7 +530,7 @@ export function App() {
     return () => {
       active = false;
     };
-  }, [connect, initialRoom, ownRoom]);
+  }, [connect, restoreTarget]);
 
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
@@ -624,6 +714,10 @@ export function App() {
 
   const enter = (entered: PublicGameState) => {
     setNotice("");
+    clearSaved(LEFT_TABLE_KEY);
+    setRestoreTarget(null);
+    setPathRoom(entered.roomCode);
+    setSelected([]);
     snapshotRef.current = entered;
     setState(entered);
     connect(entered.roomCode);
@@ -652,8 +746,57 @@ export function App() {
   }, [notice, state]);
 
   useEffect(() => {
-    if (state?.phase === "finished" || state?.phase === "expired") setNotice("");
+    if (state?.phase === "finished" || state?.phase === "expired") {
+      setNotice("");
+      setConfirmLeave(false);
+    }
   }, [state?.phase, notice]);
+
+  const leave = useCallback((pushHistory: boolean) => {
+    const current = snapshotRef.current;
+    // Keep the seat available through Return, including a Back navigation mid-game.
+    if (current && ["lobby", "setup", "playing"].includes(current.phase))
+      saveSaved(LEFT_TABLE_KEY, current.roomCode);
+    else if (current) clearSaved(LEFT_TABLE_KEY);
+    forgetRoom();
+    setRestoreTarget(null);
+    setPathRoom(null);
+    setLoadingRoom(false);
+    setLoadingWaking(false);
+    setConfirmLeave(false);
+    setSelected([]);
+    setFlights([]);
+    setNotice("");
+    previousRef.current = null;
+    senderRef.current?.dispose();
+    senderRef.current = null;
+    setPending(false);
+    setDrawBusy(false);
+    socketRef.current?.disconnect();
+    socketRef.current = null;
+    snapshotRef.current = null;
+    if (pushHistory) window.history.pushState({}, "", "/");
+    setState(null);
+  }, []);
+  const leaveToLobby = () => leave(true);
+
+  useEffect(() => {
+    const onPopState = () => {
+      const room = roomFromPath();
+      if (room && snapshotRef.current?.roomCode === room) {
+        setPathRoom(room);
+        return;
+      }
+      leave(false);
+      if (room) {
+        setPathRoom(room);
+        setLoadingRoom(true);
+        setRestoreTarget({ room, replaceURL: false });
+      }
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [leave]);
 
   if (loadingRoom)
     return (
@@ -664,7 +807,16 @@ export function App() {
         <p role="status">{loadingWaking ? "Waking the table…" : "Reconnecting…"}</p>
       </main>
     );
-  if (!state) return <Lobby initialCode={pathRoom ?? ""} onEnter={enter} notice={notice} />;
+  if (!state)
+    return (
+      <Lobby
+        key={pathRoom ?? ""}
+        initialCode={pathRoom ?? ""}
+        onEnter={enter}
+        notice={notice}
+        returnCode={pathRoom ? null : loadSaved(LEFT_TABLE_KEY)}
+      />
+    );
 
   const banner = wakingBanner(
     connection === "connected",
@@ -722,25 +874,26 @@ export function App() {
     setNotice("Invitation link copied.");
   };
 
-  const leaveToLobby = () => {
-    forgetRoom();
-    senderRef.current?.dispose();
-    senderRef.current = null;
-    setPending(false);
-    setDrawBusy(false);
-    socketRef.current?.disconnect();
-    snapshotRef.current = null;
-    window.history.pushState({}, "", "/");
-    setState(null);
-  };
-
   const opponent = state.opponent;
+  // The Palace wordmark goes home. Mid-game it asks first, because leaving can forfeit.
+  const goHome = () => {
+    if (state.phase === "setup" || state.phase === "playing") setConfirmLeave(true);
+    else leaveToLobby();
+  };
   return (
     <main className="game-shell" onPointerDown={sound.unlock}>
       <header className="game-header">
-        <div className="mini-brand">
+        <button
+          type="button"
+          className="mini-brand"
+          onClick={goHome}
+          aria-label="Palace, back to home"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m14.5 6-6 6 6 6" />
+          </svg>
           <b>Palace</b>
-        </div>
+        </button>
         <button
           className="room-chip"
           onClick={() => void copyInvite()}
@@ -1086,6 +1239,14 @@ export function App() {
           animate={animateResult}
           onLobby={leaveToLobby}
           onRematch={() => void act({ type: "REQUEST_REMATCH" })}
+        />
+      )}
+      {confirmLeave && state.phase !== "finished" && state.phase !== "expired" && (
+        <LeaveDialog
+          playing={state.phase === "playing"}
+          opponentName={opponent?.name ?? null}
+          onStay={() => setConfirmLeave(false)}
+          onLeave={leaveToLobby}
         />
       )}
       {notice && (

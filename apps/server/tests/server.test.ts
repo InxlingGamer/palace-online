@@ -330,6 +330,56 @@ describe("socket integrity and abuse limits", () => {
 });
 
 describe("reconnect lifecycle", () => {
+  it("forfeits an absent setup player one full grace period after play starts", async () => {
+    const p = await pair();
+    expect((await p.send(p.a, { type: "READY" })).accepted).toBe(true);
+    expect((await p.send(p.b, { type: "READY" })).accepted).toBe(true);
+    expect(
+      (
+        await p.send(p.a, {
+          type: "SELECT_SETUP_CARDS",
+          cardIds: p.record.state.players[0]!.hand.slice(0, 3).map(({ id }) => id),
+        })
+      ).accepted,
+    ).toBe(true);
+
+    // Keep network I/O real while controlling the server's grace deadline exactly.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const disconnected = new Promise<void>((resolve) => {
+      const onSnapshot = (state: PublicGameState) => {
+        if (state.opponent?.connected === false) {
+          p.b.off("state:snapshot", onSnapshot);
+          resolve();
+        }
+      };
+      p.b.on("state:snapshot", onSnapshot);
+    });
+    p.a.disconnect();
+    await disconnected;
+    await vi.advanceTimersByTimeAsync(testConfig.RECONNECT_GRACE_MS);
+    expect(p.record.state.phase).toBe("setup");
+    expect(p.record.state.players[0]!.setupComplete).toBe(true);
+    expect([...p.record.sessions.values()][0]!.disconnectTimer).toBeNull();
+
+    expect(
+      (
+        await p.send(p.b, {
+          type: "SELECT_SETUP_CARDS",
+          cardIds: p.record.state.players[1]!.hand.slice(0, 3).map(({ id }) => id),
+        })
+      ).accepted,
+    ).toBe(true);
+    expect(p.record.state.phase).toBe("playing");
+    await vi.advanceTimersByTimeAsync(testConfig.RECONNECT_GRACE_MS - 1);
+    expect(p.record.state.phase).toBe("playing");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(p.record.state).toMatchObject({
+      phase: "finished",
+      winnerId: p.record.state.players[1]!.id,
+      resultReason: "forfeit",
+    });
+  });
+
   it("keeps a finished winner when the loser disconnects past grace", async () => {
     const p = await pair({ TEST_GAME_SCENARIO: "finished-result" });
     await p.start();
@@ -436,7 +486,178 @@ const cookieOf = (response: request.Response): string => {
   return value.split(";", 1)[0]!;
 };
 
+async function snapshotWithCookie(url: string, roomCode: string, cookie: string) {
+  const socket = createClient(url, {
+    auth: { roomCode },
+    transports: ["websocket"],
+    autoConnect: false,
+    reconnection: false,
+    extraHeaders: { Cookie: cookie },
+  });
+  sockets.push(socket);
+  return new Promise<PublicGameState>((resolve, reject) => {
+    socket.once("state:snapshot", resolve);
+    socket.once("connect_error", reject);
+    socket.connect();
+  });
+}
+
 describe("room API", () => {
+  it.each(["create", "join"] as const)(
+    "retains both room cookies for HTTP and socket reconnects after a second room %s",
+    async (mode) => {
+      const runtime = createRuntime(testConfig);
+      runtimes.push(runtime);
+      await new Promise<void>((resolve) => runtime.httpServer.listen(0, "127.0.0.1", resolve));
+      const url = `http://127.0.0.1:${(runtime.httpServer.address() as AddressInfo).port}`;
+      const agent = request.agent(url);
+      const first = await agent.post("/api/rooms").send({ name: "Ada" }).expect(201);
+      const other =
+        mode === "join"
+          ? await request(url).post("/api/rooms").send({ name: "Other" }).expect(201)
+          : null;
+      const second = other
+        ? await agent
+            .post(`/api/rooms/${other.body.roomCode as string}/join`)
+            .send({ name: "Ben" })
+            .expect(200)
+        : await agent.post("/api/rooms").send({ name: "Ben" }).expect(201);
+      const cookie = agent.jar
+        .getCookies({ domain: "127.0.0.1", path: "/", secure: false, script: false })
+        .toValueString();
+      for (const created of [first, second]) {
+        const roomCode = created.body.roomCode as string;
+        expect(cookie).toContain(`palace_session_${roomCode}=`);
+        const http = await agent.post(`/api/rooms/${roomCode}/reconnect`).expect(200);
+        expect(http.body.state.you.id).toBe(created.body.state.you.id);
+        const snapshot = await snapshotWithCookie(url, roomCode, cookie);
+        expect(snapshot.you.id).toBe(created.body.state.you.id);
+      }
+    },
+  );
+
+  it("authenticates a legacy cookie for HTTP reconnect, socket auth, and repeated join", async () => {
+    const runtime = createRuntime(testConfig);
+    runtimes.push(runtime);
+    await new Promise<void>((resolve) => runtime.httpServer.listen(0, "127.0.0.1", resolve));
+    const url = `http://127.0.0.1:${(runtime.httpServer.address() as AddressInfo).port}`;
+    const first = await request(url).post("/api/rooms").send({ name: "Ada" }).expect(201);
+    const roomCode = first.body.roomCode as string;
+    const token = cookieOf(first).split("=")[1]!;
+    const legacyCookie = `palace_session=${token}`;
+    const agent = request.agent(url);
+    agent.jar.setCookie(legacyCookie, "127.0.0.1", "/");
+    const http = await agent.post(`/api/rooms/${roomCode}/reconnect`).expect(200);
+    expect(http.body.state.you.id).toBe(first.body.state.you.id);
+    const snapshot = await snapshotWithCookie(url, roomCode, legacyCookie);
+    expect(snapshot.you.id).toBe(first.body.state.you.id);
+    const joined = await agent
+      .post(`/api/rooms/${roomCode}/join`)
+      .send({ name: "New name" })
+      .expect(200);
+    expect(joined.body.state.you.id).toBe(first.body.state.you.id);
+    expect(runtime.store.rooms.get(roomCode)!.state.players).toHaveLength(1);
+
+    const other = await request(url).post("/api/rooms").send({ name: "Ben" }).expect(201);
+    const otherCode = other.body.roomCode as string;
+    await request(url)
+      .post(`/api/rooms/${otherCode}/reconnect`)
+      .set("Cookie", legacyCookie)
+      .expect(401);
+    await expect(snapshotWithCookie(url, otherCode, legacyCookie)).rejects.toThrow(
+      "Invalid room session",
+    );
+  });
+
+  it("returns the same membership and two seats when an agent joins twice", async () => {
+    const runtime = createRuntime(testConfig);
+    runtimes.push(runtime);
+    const first = await request(runtime.app).post("/api/rooms").send({ name: "Ada" }).expect(201);
+    const roomCode = first.body.roomCode as string;
+    const agent = request.agent(runtime.app);
+    const joined = await agent
+      .post(`/api/rooms/${roomCode}/join`)
+      .send({ name: "Ben" })
+      .expect(200);
+    const repeated = await agent
+      .post(`/api/rooms/${roomCode}/join`)
+      .send({ name: "Cy" })
+      .expect(200);
+    expect(repeated.body.state.you.id).toBe(joined.body.state.you.id);
+    expect(repeated.body.state.you.name).toBe("Ben");
+    const record = runtime.store.rooms.get(roomCode)!;
+    expect(record.state.players).toHaveLength(2);
+    expect(record.sessions.size).toBe(2);
+    expect(cookieOf(repeated)).toBe(cookieOf(joined));
+  });
+
+  it("keeps the creator's identity and single seat when joining their own room", async () => {
+    const runtime = createRuntime(testConfig);
+    runtimes.push(runtime);
+    const agent = request.agent(runtime.app);
+    const first = await agent.post("/api/rooms").send({ name: "Ada" }).expect(201);
+    const roomCode = first.body.roomCode as string;
+    const joined = await agent
+      .post(`/api/rooms/${roomCode}/join`)
+      .send({ name: "Ben" })
+      .expect(200);
+    expect(joined.body.state.you.id).toBe(first.body.state.you.id);
+    expect(joined.body.state.you.name).toBe("Ada");
+    const record = runtime.store.rooms.get(roomCode)!;
+    expect(record.state.players).toHaveLength(1);
+    expect(record.sessions.size).toBe(1);
+    expect(cookieOf(joined)).toBe(cookieOf(first));
+  });
+
+  it("returns INVALID_INPUT and 400 for malformed JSON and keeps health available", async () => {
+    const runtime = createRuntime(testConfig);
+    runtimes.push(runtime);
+    const response = await request(runtime.app)
+      .post("/api/rooms")
+      .set("Content-Type", "application/json")
+      .send('{"name":')
+      .expect(400);
+    expect(response.body).toEqual({
+      error: { code: "INVALID_INPUT", message: "The request body must be valid JSON." },
+    });
+    expect(runtime.store.rooms.size).toBe(0);
+    await request(runtime.app).get("/healthz").expect(200);
+  });
+
+  it("returns INVALID_INPUT and 413 for oversized JSON and keeps health available", async () => {
+    const runtime = createRuntime(testConfig);
+    runtimes.push(runtime);
+    const response = await request(runtime.app)
+      .post("/api/rooms")
+      .send({ name: "A".repeat(16 * 1024) })
+      .expect(413);
+    expect(response.body).toEqual({
+      error: { code: "INVALID_INPUT", message: "The request body is too large." },
+    });
+    expect(runtime.store.rooms.size).toBe(0);
+    await request(runtime.app).get("/healthz").expect(200);
+  });
+
+  it("keeps unexpected errors at 500 and keeps health available", async () => {
+    const runtime = createRuntime(testConfig);
+    runtimes.push(runtime);
+    const create = vi.spyOn(runtime.store, "create").mockImplementation(() => {
+      throw new SyntaxError("Unexpected server failure");
+    });
+    try {
+      const response = await request(runtime.app)
+        .post("/api/rooms")
+        .send({ name: "Ada" })
+        .expect(500);
+      expect(response.body).toEqual({
+        error: { code: "SERVER_ERROR", message: "Something went wrong." },
+      });
+      await request(runtime.app).get("/healthz").expect(200);
+    } finally {
+      create.mockRestore();
+    }
+  });
+
   it("creates, joins, reconnects, and caps a room at two players", async () => {
     const runtime = createRuntime(testConfig);
     runtimes.push(runtime);

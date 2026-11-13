@@ -342,6 +342,16 @@ Owner request from three iPhone screenshots: move the "X played a Jack" tag up, 
 - **Hand:** `hand.tsx` measures the rendered card width (the token can be a `dvh` clamp) and re-measures on window resize (Safari toolbar).
 - Verified: `pnpm check` (167 unit tests), Playwright main 56/56, all six scenario suites, PWA 6/6, and `output/audit/polish-shots.ts` screenshots of every state in five viewports (iPhone 15 Plus Safari and standalone, iPhone SE, desktop 1366, landscape) with no overflow. Not verified on a physical iPhone.
 
+## Bug hunt (2026-11-13, branch `fix/lobby-nav-deck-picker`, not deployed)
+
+Owner request: Codex tries to break the site, every bug gets fixed and re-tested. Three read-only Codex audits (engine, server, client) ran in parallel; Claude verified each finding in the code; Codex fixed them with a test per bug (each test checked to fail before and pass after); a second Codex review of the fixes found two regressions, fixed by Claude.
+
+- Engine: clean (Codex 300-game simulation + 932 checks; Claude fuzzer 26k moves, no invariant violations).
+- Server (5): forfeit timer lost when a player disconnects during setup; one seat cookie for every room (now `palace_session_<CODE>`, legacy cookie still accepted); repeated join returned "room full" / gave the creator a second seat (joins are now idempotent for a seat holder); lobby churn grew `stats.pickups`; bad JSON returned 500 (now 400/413).
+- Client (8 + 3): blocked storage crashed the app (audio.ts); stale invite after leaving hid Return to table; create retried after possibly succeeding (now a /healthz wake-up, then one create); service-worker cache-write failures dropped good responses (runtime writes best-effort, but install still fails if precache fails so the old cache survives); replaced public files kept the old cache (build id hashes public bytes); Back/Forward desynced URL and screen (popstate handling); selection carried into rematches; dialogs did not trap focus (focus trap + inert background, focus returns to the opener on Safari); a late lobby request could override Back navigation.
+- Also: the Palace wordmark is a home button with a leave confirmation, the lobby shows "Return to table", and deck tiles stack the preview above the name.
+- Verified: `pnpm check` (194 unit tests), Playwright main 74/74, all six scenario suites, PWA 6/6, iPhone screenshots.
+
 ## Key audit findings (summary)
 
 - **Network mismatch (root cause, reproduced):** the red toast is `STALE_STATE`. The server rejected any action whose `expectedRevision` differed from the room revision, and the revision changes on every draw (either player may draw at any time) and on every connect/disconnect. Simultaneous draws, a play racing the opponent's draw, double taps, and opponent reconnects all caused false rejections. Game state was never corrupted (Codex simulated 200 games / ~49k actions: 52 cards conserved).
