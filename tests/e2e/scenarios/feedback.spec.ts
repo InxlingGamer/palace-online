@@ -315,10 +315,12 @@ test.describe("big-hand", () => {
   }
 
   test("readable strips, dock clearance, selection badges and keyboard", async ({ browser }) => {
+    const mobile = !!test.info().project.use.isMobile;
+    // 50+ sequential taps on emulated WebKit run close to the 90 s limit on CI runners.
+    test.slow(mobile, "long mobile tap sequence");
     const players = await createReadyGame(browser);
     const page = players.playerA;
     try {
-      const mobile = !!test.info().project.use.isMobile;
       const geometry = await page.locator(".hand").evaluate((el) => {
         const cards = [...el.querySelectorAll("[data-card-id]")].map((card) =>
           card.getBoundingClientRect(),
