@@ -33,8 +33,10 @@ import { api, currentBootId, rememberBootId, storedBootId, ServerWakingError } f
 import { serverRestarted, wakingBanner, WAKING_DELAY_MS } from "./server-wake";
 
 import {
+  clearSaved,
   forgetRoom,
   loadSaved,
+  saveSaved,
   markPresented,
   rememberRoom,
   savedName,
@@ -158,6 +160,59 @@ function isLegal(state: PublicGameState, rank: Rank): boolean {
   return rankValue.get(rank)! >= rankValue.get(top.rank)!;
 }
 
+const LEFT_TABLE_KEY = "palace-left-table";
+
+function LeaveDialog({
+  playing,
+  opponentName,
+  onStay,
+  onLeave,
+}: {
+  playing: boolean;
+  opponentName: string | null;
+  onStay: () => void;
+  onLeave: () => void;
+}) {
+  const stay = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    stay.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onStay();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onStay]);
+  return (
+    <div className="leave-dialog" onClick={onStay}>
+      <section
+        className="leave-panel"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="leave-title"
+        aria-describedby="leave-copy"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2 id="leave-title">Leave this game?</h2>
+        <p id="leave-copy">
+          {playing
+            ? `You can return from the home screen. If you're away for 10 minutes, ${
+                opponentName ?? "the other player"
+              } wins by forfeit.`
+            : "Your seat is saved. You can return from the home screen."}
+        </p>
+        <div className="leave-actions">
+          <button ref={stay} type="button" className="button" onClick={onStay}>
+            Stay
+          </button>
+          <button type="button" className="button button--gold" onClick={onLeave}>
+            Leave table
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 /** The last card of the match, lifted into a spotlight before the result screen. */
 function FinalMoment({ cards, playerName }: { cards: CardType[]; playerName: string | null }) {
   const many = cards.length > 1;
@@ -197,10 +252,12 @@ function Lobby({
   initialCode,
   onEnter,
   notice,
+  returnCode,
 }: {
   initialCode: string;
   notice: string;
   onEnter: (state: PublicGameState) => void;
+  returnCode: string | null;
 }) {
   const [name, setName] = useState(savedName);
   const [code, setCode] = useState(initialCode);
@@ -241,6 +298,17 @@ function Lobby({
         </h1>
       </section>
       <section className="lobby-panel" aria-labelledby="lobby-title">
+        {returnCode && (
+          <a className="return-table" href={`/room/${returnCode}`}>
+            <span>
+              <b>Return to table</b>
+              <small>Room {returnCode}</small>
+            </span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m9.5 6 6 6-6 6" />
+            </svg>
+          </a>
+        )}
         <h2 id="lobby-title">Create or join a room</h2>
         <form
           className="lobby-form"
@@ -329,6 +397,7 @@ export function App() {
   const [now, setNow] = useState(Date.now);
   const [selected, setSelected] = useState<string[]>([]);
   const [notice, setNotice] = useState("");
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [pending, setPending] = useState(false);
   const [drawBusy, setDrawBusy] = useState(false);
   const [noticeTone, setNoticeTone] = useState<"info" | "error">("error");
@@ -417,6 +486,7 @@ export function App() {
         await rememberBootId(initialRoom);
         if (!active) return;
         rememberRoom(initialRoom);
+        clearSaved(LEFT_TABLE_KEY);
         window.history.replaceState({}, "", `/room/${initialRoom}`);
         snapshotRef.current = restored;
         setState(restored);
@@ -429,6 +499,7 @@ export function App() {
         }
         // An invite link to a table we never sat at keeps our saved table and needs no notice.
         if (savedRoom() === initialRoom) forgetRoom();
+        if (loadSaved(LEFT_TABLE_KEY) === initialRoom) clearSaved(LEFT_TABLE_KEY);
         if (!ownRoom) return;
         const stored = storedBootId(initialRoom);
         const current = await currentBootId();
@@ -624,6 +695,7 @@ export function App() {
 
   const enter = (entered: PublicGameState) => {
     setNotice("");
+    clearSaved(LEFT_TABLE_KEY);
     snapshotRef.current = entered;
     setState(entered);
     connect(entered.roomCode);
@@ -664,7 +736,15 @@ export function App() {
         <p role="status">{loadingWaking ? "Waking the table…" : "Reconnecting…"}</p>
       </main>
     );
-  if (!state) return <Lobby initialCode={pathRoom ?? ""} onEnter={enter} notice={notice} />;
+  if (!state)
+    return (
+      <Lobby
+        initialCode={pathRoom ?? ""}
+        onEnter={enter}
+        notice={notice}
+        returnCode={pathRoom ? null : loadSaved(LEFT_TABLE_KEY)}
+      />
+    );
 
   const banner = wakingBanner(
     connection === "connected",
@@ -723,7 +803,16 @@ export function App() {
   };
 
   const leaveToLobby = () => {
+    // A table left mid-game stays one tap away on the home screen (the seat cookie still works).
+    if (state.phase === "lobby" || state.phase === "setup" || state.phase === "playing")
+      saveSaved(LEFT_TABLE_KEY, state.roomCode);
+    else clearSaved(LEFT_TABLE_KEY);
     forgetRoom();
+    setConfirmLeave(false);
+    setSelected([]);
+    setFlights([]);
+    setNotice("");
+    previousRef.current = null;
     senderRef.current?.dispose();
     senderRef.current = null;
     setPending(false);
@@ -735,12 +824,25 @@ export function App() {
   };
 
   const opponent = state.opponent;
+  // The Palace wordmark goes home. Mid-game it asks first, because leaving can forfeit.
+  const goHome = () => {
+    if (state.phase === "setup" || state.phase === "playing") setConfirmLeave(true);
+    else leaveToLobby();
+  };
   return (
     <main className="game-shell" onPointerDown={sound.unlock}>
       <header className="game-header">
-        <div className="mini-brand">
+        <button
+          type="button"
+          className="mini-brand"
+          onClick={goHome}
+          aria-label="Palace, back to home"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="m14.5 6-6 6 6 6" />
+          </svg>
           <b>Palace</b>
-        </div>
+        </button>
         <button
           className="room-chip"
           onClick={() => void copyInvite()}
@@ -1086,6 +1188,14 @@ export function App() {
           animate={animateResult}
           onLobby={leaveToLobby}
           onRematch={() => void act({ type: "REQUEST_REMATCH" })}
+        />
+      )}
+      {confirmLeave && (
+        <LeaveDialog
+          playing={state.phase === "playing"}
+          opponentName={opponent?.name ?? null}
+          onStay={() => setConfirmLeave(false)}
+          onLeave={leaveToLobby}
         />
       )}
       {notice && (
