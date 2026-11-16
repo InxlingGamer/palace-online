@@ -1,5 +1,5 @@
 import { loadSaved, saveSaved } from "./storage";
-import { WAKING_DELAY_MS, WAKING_FAILURE } from "./server-wake";
+import { WAKE_PATH, WAKING_DELAY_MS, WAKING_FAILURE } from "./server-wake";
 
 export class ServerWakingError extends Error {
   constructor() {
@@ -80,7 +80,7 @@ export function storedBootId(roomCode: string): string | null {
 }
 export async function currentBootId(): Promise<string | null> {
   try {
-    const response = await fetch("/healthz", {
+    const response = await fetch(WAKE_PATH, {
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });

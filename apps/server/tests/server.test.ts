@@ -759,6 +759,14 @@ describe("process health", () => {
     expect(second.body.uptime).toBeGreaterThanOrEqual(first.body.uptime as number);
     expect(first.headers["cache-control"]).toBe("no-store");
   });
+  it("answers the client's /api/wake check like /healthz, which blockers may refuse", async () => {
+    const runtime = createRuntime(testConfig);
+    runtimes.push(runtime);
+    const health = await request(runtime.app).get("/healthz").expect(200);
+    const wake = await request(runtime.app).get("/api/wake").expect(200);
+    expect(wake.body).toMatchObject({ status: "ok", bootId: health.body.bootId, buildId: null });
+    expect(wake.headers["cache-control"]).toBe("no-store");
+  });
 });
 
 describe("production app shell", () => {

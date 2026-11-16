@@ -29,7 +29,7 @@ import { restrictionForViewer } from "./restriction";
 import { deriveVisualEvents } from "./visual-events";
 
 import { api, currentBootId, rememberBootId, storedBootId, ServerWakingError } from "./api";
-import { serverRestarted, wakingBanner, WAKING_DELAY_MS } from "./server-wake";
+import { serverRestarted, wakingBanner, WAKE_PATH, WAKING_DELAY_MS } from "./server-wake";
 
 import {
   clearSaved,
@@ -284,7 +284,7 @@ function Lobby({
     try {
       // Create is sent once (a lost response may already have made the room), so wake a
       // sleeping server first with the retry-safe health check.
-      if (mode === "create") await api("/healthz", { method: "GET" }, () => setWaking(true));
+      if (mode === "create") await api(WAKE_PATH, { method: "GET" }, () => setWaking(true));
       if (!mounted.current) return;
       const result = await api<{ roomCode: string; state: PublicGameState }>(
         mode === "create" ? "/api/rooms" : `/api/rooms/${code.toUpperCase()}/join`,

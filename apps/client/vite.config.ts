@@ -63,7 +63,6 @@ export default defineConfig(({ command }) => ({
   server: {
     proxy: {
       "/api": { target: "http://localhost:3001", changeOrigin: true },
-      "/healthz": { target: "http://localhost:3001", changeOrigin: true },
       "/socket.io": { target: "ws://localhost:3001", ws: true },
     },
   },
