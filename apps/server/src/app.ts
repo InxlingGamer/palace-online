@@ -92,7 +92,9 @@ export function createRuntime(config: ServerConfig, options: { clientDirectory?:
     legacyHeaders: false,
   });
 
-  app.get("/healthz", (_request, response) => {
+  // Render probes /healthz. The client uses /api/wake: some desktop blockers and extensions
+  // refuse any root path starting with /health, which left the boot gate waking forever.
+  app.get(["/healthz", "/api/wake"], (_request, response) => {
     response.set("Cache-Control", "no-store");
     response.json({ status: "ok", uptime: Math.round(process.uptime()), bootId, buildId });
   });

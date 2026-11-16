@@ -19,7 +19,7 @@ test("registers, controls and never caches Render's loading page", async ({
 }) => {
   await controlled(page);
   expect((await request.get("/sw.js")).headers()["cache-control"]).toBe("no-cache");
-  await context.route("**/healthz", (route) => route.abort());
+  await context.route("**/api/wake", (route) => route.abort());
   await context.route("http://127.0.0.1:4180/", (route) =>
     route.fulfill({ status: 200, contentType: "text/html", body: "<h1>Render loading</h1>" }),
   );
@@ -40,7 +40,7 @@ test("launches offline from the cached shell and recovers online", async ({ page
   // Chromium's offline emulation doesn't reach a document the worker served (navigator.onLine
   // reads true there), so the cached shell first shows the waking copy; a real device reports offline.
   await expect(page.getByRole("heading", { name: "Waking the table…" })).toBeVisible();
-  await context.route("**/healthz", (route) => route.abort());
+  await context.route("**/api/wake", (route) => route.abort());
   await context.setOffline(false);
   await context.setOffline(true);
   await expect(

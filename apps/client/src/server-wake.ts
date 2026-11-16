@@ -1,3 +1,7 @@
+// The client's health check. The server also answers /healthz for Render, but some desktop
+// blockers and extensions refuse any root path starting with /health, which left the boot
+// gate on "Waking the table…" forever.
+export const WAKE_PATH = "/api/wake";
 export const WAKING_DELAY_MS = 4000;
 export const WAKING_FAILURE = "The server is still waking up. Try again in a moment.";
 

@@ -1,3 +1,5 @@
+import { WAKE_PATH } from "./server-wake";
+
 export type BootDecision = "continue" | "loading" | "waking" | "offline" | "reload";
 export function bootDecision({
   online,
@@ -28,7 +30,7 @@ export async function checkHealth(signal: AbortSignal): Promise<{ buildId: strin
   const timeout = setTimeout(abort, 5000);
   try {
     if (signal.aborted) return null;
-    const response = await fetch("/healthz", { cache: "no-store", signal: controller.signal });
+    const response = await fetch(WAKE_PATH, { cache: "no-store", signal: controller.signal });
     if (!response.ok) return null;
     const body: unknown = await response.json();
     if (!body || typeof body !== "object") return null;

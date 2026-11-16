@@ -75,12 +75,23 @@ async function noOverflow(page: Page) {
   ).toEqual([0, 0]);
 }
 
+test("boots when a desktop blocker refuses every /health path", async ({ page }) => {
+  // Some desktop extensions and site blockers fail any root path starting with /health,
+  // which once left the boot gate on "Waking the table…" forever.
+  await page.route(/^https?:\/\/[^/]+\/health/, (route) => route.abort("blockedbyclient"));
+  await page.goto("/");
+  await expect(page.getByLabel("Display name")).toBeVisible({ timeout: 5000 });
+  await page.getByLabel("Display name").fill("Ada");
+  await page.getByRole("button", { name: "Create room" }).click();
+  await expect(page).toHaveURL(/\/room\/[A-Z0-9]{6}$/);
+});
+
 test("boot waking and offline screens recover and clear simulated safe areas", async ({
   page,
   context,
 }) => {
   await page.setViewportSize({ width: 430, height: 932 });
-  await page.route("**/healthz", () => undefined);
+  await page.route("**/api/wake", () => undefined);
   await page.goto("/");
   await page.addStyleTag({ content: ":root { --safe-top: 59px; --safe-bottom: 34px; }" });
   await expect(page.getByRole("heading", { name: "Waking the table…" })).toBeVisible();
@@ -623,7 +634,7 @@ test("lobby create waits for a waking server, then creates exactly one room", as
   await page.getByLabel("Display name").fill("Ada");
   let release = false;
   let creates = 0;
-  await page.route("**/healthz", async (route) => {
+  await page.route("**/api/wake", async (route) => {
     if (release) await route.continue();
     else
       await route.fulfill({ status: 503, contentType: "text/html", body: "<html>Waking</html>" });
